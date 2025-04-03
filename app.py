@@ -33,42 +33,15 @@ def get_items():
     ]
     return {'status': 'success', 'data': items}
 
-# 特定アイテムの取得
-@app.route('/api/items/<item_id:int>', method='GET')
-def get_item(item_id):
-    # サンプルデータ（実際のアプリケーションではデータベースなどから取得）
-    items = {
-        1: {'id': 1, 'name': 'Item 1', 'description': 'Description for item 1'},
-        2: {'id': 2, 'name': 'Item 2', 'description': 'Description for item 2'},
-        3: {'id': 3, 'name': 'Item 3', 'description': 'Description for item 3'}
-    }
-    
-    if item_id in items:
-        return {'status': 'success', 'data': items[item_id]}
-    else:
-        response.status = 404
-        return {'status': 'error', 'message': f'Item with id {item_id} not found'}
-
 # POSTリクエストの処理例
-@app.route('/api/items', method='POST')
+@app.route('/default/slack-subscriptions', method='POST')
 def create_item():
     try:
         data = request.json
+        print(data)
         
-        # バリデーション
-        if not data or not 'name' in data:
-            response.status = 400
-            return {'status': 'error', 'message': 'Name is required'}
-            
-        # ここでデータを処理・保存（実際のアプリケーションではデータベースなどに保存）
-        # サンプルレスポンス
-        new_item = {
-            'id': 4,  # 実際のアプリケーションでは自動生成
-            'name': data['name'],
-            'description': data.get('description', '')
-        }
-        
-        return {'status': 'success', 'message': 'Item created', 'data': new_item}
+        challenge = data.get("challenge","")
+        return {challenge}
     except Exception as e:
         response.status = 400
         return {'status': 'error', 'message': str(e)}
