@@ -1,9 +1,15 @@
 from bottle import Bottle, run, request, response
 import json
 import os
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 
 # アプリケーションインスタンスの作成
 app = Bottle()
+
+# Slack APIトークンの設定
+SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "xoxb-your-token")
+slack_client = WebClient(token=SLACK_BOT_TOKEN)
 
 # CORSミドルウェア
 @app.hook('after_request')
@@ -33,15 +39,41 @@ def get_items():
     ]
     return {'status': 'success', 'data': items}
 
-# POSTリクエストの処理例
+# Slackイベントの処理
 @app.route('/default/slack-subscriptions', method='POST')
-def create_item():
+def slack_events():
     try:
         data = request.json
-        print(data)
+        print(data)  # デバッグ用
         
-        challenge = data.get("challenge","")
-        return {challenge}
+        # Slack APIの検証チャレンジに応答
+        if "challenge" in data:
+            return {"challenge": data["challenge"]}
+        
+        # イベントコールバックの処理
+        if data.get("type") == "event_callback":
+            event = data.get("event", {})
+            
+            # メッセージイベントの処理
+            if event.get("type") == "message":
+                user = event.get("user")
+                text = event.get("text", "").strip()
+                channel = event.get("channel")
+                
+                # 「こんにちは」というメッセージに応答
+                if "こんにちは" in text:
+                    try:
+                        # Slackにメッセージを送信
+                        response_text = "こんにちは！お元気ですか？"
+                        slack_client.chat_postMessage(
+                            channel=channel,
+                            text=response_text
+                        )
+                    except SlackApiError as e:
+                        print(f"Error sending message: {e}")
+        
+        return {}  # 成功時は空のレスポンスを返す
+        
     except Exception as e:
         response.status = 400
         return {'status': 'error', 'message': str(e)}

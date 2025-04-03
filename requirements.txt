@@ -1,3 +1,4 @@
 bottle==0.12.25
 gunicorn==21.2.0
 gevent==23.9.1
+slack_sdk==3.35.0
