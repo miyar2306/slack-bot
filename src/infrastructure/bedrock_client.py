@@ -15,39 +15,46 @@ class BedrockClient:
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
         self.model_id = "us.amazon.nova-pro-v1:0"  # Novaモデル
     
-    def generate_response(self, message):
+    def generate_response(self, message_or_conversation):
         """
-        メッセージに対する応答を生成
+        メッセージまたは会話履歴に対する応答を生成
         
         Args:
-            message (str): 入力メッセージ
+            message_or_conversation: 単一のメッセージ（文字列）または会話履歴（辞書のリスト）
             
         Returns:
             str: 生成された応答
         """
         
-        messages = [{
-                        "role": "user",
-                        "content": [{"text": message}]
-                    }]
+        # 入力が文字列の場合（単一のメッセージ）
+        if isinstance(message_or_conversation, str):
+            messages = [{
+                "role": "user",
+                "content": [{"text": message_or_conversation}]
+            }]
+        # 入力がリストの場合（会話履歴）
+        elif isinstance(message_or_conversation, list):
+            messages = message_or_conversation
+        else:
+            return "エラー: 無効な入力形式です。"
         
         system = [
-                {
-                    "text": "You are a helpful AI assistant. You have access to the following tools: Speak in Japanese"
-                }
-            ]
+            {
+                "text": "You are a helpful AI assistant. You have access to the following tools: Speak in Japanese"
+            }
+        ]
         
         try:
-            # invoke_modelメソッドを使用
+            # converseメソッドを使用
             response = self.client.converse(
-                        modelId=self.model_id,
-                        messages=messages,
-                        system=system,
-                        inferenceConfig={
-                            "maxTokens": 300,
-                            "topP": 0.1,
-                            "temperature": 0.3
-                        },
+                modelId=self.model_id,
+                messages=messages,
+                system=system,
+                inferenceConfig={
+                    "maxTokens": 300,
+                    "topP": 0.1,
+                    "temperature": 0.3
+                },
             )
             
             output_message = response['output']['message']

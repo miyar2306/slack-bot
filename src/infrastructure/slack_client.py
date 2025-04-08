@@ -35,3 +35,27 @@ class SlackClient:
         except SlackApiError as e:
             print(f"Error sending message: {e}")
             return False
+    
+    def get_thread_messages(self, channel, thread_ts):
+        """
+        指定したスレッド内の全メッセージを取得
+        
+        Args:
+            channel (str): チャンネルID
+            thread_ts (str): スレッドのタイムスタンプ
+            
+        Returns:
+            list: スレッド内のメッセージのリスト（古い順）
+        """
+        try:
+            # conversations.repliesエンドポイントを使用してスレッド内のメッセージを取得
+            response = self.client.conversations_replies(
+                channel=channel,
+                ts=thread_ts
+            )
+            
+            # メッセージのリストを返す（最初のメッセージを含む）
+            return response.get('messages', [])
+        except SlackApiError as e:
+            print(f"Error getting thread messages: {e}")
+            return []

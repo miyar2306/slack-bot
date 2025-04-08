@@ -80,11 +80,21 @@ class SlackService:
                 message_text = event.get("text", "")
                 thread_ts = event.get("ts")
                 
-                # メンション部分（<@BOTID>）を削除してメッセージ内容を抽出
-                clean_message = self._clean_mention(message_text)
+                # スレッドの親メッセージかスレッド内のメッセージかを判断
+                parent_ts = event.get("thread_ts")
                 
-                # Bedrockを使用して応答を生成
-                response = self.bedrock_client.generate_response(clean_message)
+                if parent_ts:
+                    # スレッド内のメッセージの場合、親のタイムスタンプを使用
+                    thread_ts = parent_ts
+                
+                # スレッド内の全メッセージを取得
+                thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
+                
+                # スレッド内のメッセージから会話の文脈を構築
+                conversation_context = self._build_conversation_context(thread_messages)
+                
+                # Bedrockを使用して応答を生成（会話の文脈を含める）
+                response = self.bedrock_client.generate_response(conversation_context)
                 
                 # スレッドで返信
                 self.slack_client.send_message(channel, response, thread_ts=thread_ts)
@@ -92,14 +102,55 @@ class SlackService:
             # DMメッセージイベントの処理
             elif event_type == "message" and event.get("channel_type") == "im":
                 message_text = event.get("text", "")
+                thread_ts = event.get("thread_ts")
                 
-                # Bedrockを使用して応答を生成
-                response = self.bedrock_client.generate_response(message_text)
+                if thread_ts:
+                    # スレッド内のメッセージの場合、スレッド内の全メッセージを取得
+                    thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
+                    conversation_context = self._build_conversation_context(thread_messages)
+                    response = self.bedrock_client.generate_response(conversation_context)
+                else:
+                    # 通常のDMの場合、単一のメッセージのみを処理
+                    response = self.bedrock_client.generate_response(message_text)
                 
-                self.slack_client.send_message(channel, response)
+                # 返信（スレッド内のメッセージの場合はスレッドで返信）
+                self.slack_client.send_message(channel, response, thread_ts=thread_ts)
         
         except Exception as e:
             print(f"Error processing event: {e}")
+    
+    def _build_conversation_context(self, messages):
+        """
+        スレッド内のメッセージから会話の文脈を構築
+        
+        Args:
+            messages (list): スレッド内のメッセージのリスト
+            
+        Returns:
+            list: Bedrock Converse APIに適した形式の会話履歴
+        """
+        conversation = []
+        
+        for message in messages:
+            text = message.get("text", "")
+            
+            # メンション部分を削除
+            clean_text = self._clean_mention(text)
+            
+            if clean_text:
+                # ボットのメッセージかユーザーのメッセージかを判断
+                if message.get("bot_id"):
+                    conversation.append({
+                        "role": "assistant",
+                        "content": [{"text": clean_text}]
+                    })
+                else:
+                    conversation.append({
+                        "role": "user",
+                        "content": [{"text": clean_text}]
+                    })
+        
+        return conversation
     
     def _clean_mention(self, text):
         """
