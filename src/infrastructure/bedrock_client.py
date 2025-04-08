@@ -13,11 +13,11 @@ class BedrockClient:
         """
         # IAMロールを使用して認証（認証情報の明示的な指定は不要）
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
-        self.model_id = "us.amazon.nova-pro-v1:0"
+        self.model_id = "amazon.titan-text-express-v1"  # Novaモデル
     
     def generate_response(self, message):
         """
-        メッセージに対する応答を生成（Converse API使用）
+        メッセージに対する応答を生成
         
         Args:
             message (str): 入力メッセージ
@@ -25,30 +25,36 @@ class BedrockClient:
         Returns:
             str: 生成された応答
         """
-        # Converse APIのリクエスト形式
-        request_body = {
-            "messages": [
+        
+        messages = [{
+                        "role": "user",
+                        "content": [{"text": message}]
+                    }]
+        
+        system = [
                 {
-                    "role": "user",
-                    "content": [
-                        {
-                            "text": message
-                        }
-                    ]
+                    "text": "You are a helpful AI assistant. You have access to the following tools: Speak in Japanese"
                 }
-            ],
-            "anthropic_version": "bedrock-2023-05-31"
-        }
+            ]
         
         try:
+            # invoke_modelメソッドを使用
             response = self.client.converse(
-                modelId=self.model_id,
-                messages=request_body["messages"]
+                        modelId=self.model_id,
+                        messages=messages,
+                        system=system,
+                        inferenceConfig={
+                            "maxTokens": 300,
+                            "topP": 0.1,
+                            "temperature": 0.3
+                        },
             )
             
-            # レスポンスから応答テキストを抽出
-            response_text = response['messages'][0]['content'][0]['text']
-            return response_text
+            # レスポンスのボディを解析
+            response_body = json.loads(response.get('body').read())
+            
+            # 応答テキストを抽出
+            return response_body.get('results')[0].get('outputText')
         except Exception as e:
             print(f"Error generating response: {e}")
             return "すみません、応答の生成中にエラーが発生しました。"
