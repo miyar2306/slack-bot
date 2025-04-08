@@ -1,4 +1,5 @@
 from bottle import run
+from dotenv import load_dotenv
 from src.infrastructure.config import Config
 from src.infrastructure.slack_client import SlackClient
 from src.infrastructure.bedrock_client import BedrockClient
@@ -7,6 +8,9 @@ from src.presentation.api import SlackAPI
 
 def main():
     """アプリケーションのエントリーポイント"""
+    
+    # .envファイルから環境変数を読み込む
+    load_dotenv()
     
     # 設定の読み込み
     config = Config()
