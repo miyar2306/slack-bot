@@ -1,6 +1,7 @@
 from bottle import run
 from src.infrastructure.config import Config
 from src.infrastructure.slack_client import SlackClient
+from src.infrastructure.bedrock_client import BedrockClient
 from src.application.slack_service import SlackService
 from src.presentation.api import SlackAPI
 
@@ -12,7 +13,12 @@ def main():
     
     # 依存関係の構築
     slack_client = SlackClient(config.slack_bot_token)
-    slack_service = SlackService(slack_client, config.event_retention_period)
+    bedrock_client = BedrockClient(region_name=config.aws_region)
+    slack_service = SlackService(
+        slack_client=slack_client,
+        bedrock_client=bedrock_client,
+        event_retention_period=config.event_retention_period
+    )
     slack_api = SlackAPI(slack_service)
     
     # アプリケーションの取得

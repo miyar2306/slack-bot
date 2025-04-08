@@ -13,3 +13,6 @@ class Config:
         
         # イベント設定
         self.event_retention_period = 3600  # 1時間
+        
+        # AWS設定
+        self.aws_region = os.environ.get("AWS_REGION", "us-west-2")
