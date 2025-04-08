@@ -1,6 +1,6 @@
-# Bottle API Server
+# Slack Bot with Bottle
 
-軽量なPython Bottleフレームワークを使用したシンプルなAPIサーバー。
+Bottleフレームワークを使用したSlackボットサーバー。
 
 ## セットアップ
 
@@ -27,6 +27,12 @@ source .venv/bin/activate  # macOS/Linux
 uv pip install -r requirements.txt
 ```
 
+### 環境変数の設定
+
+```bash
+export SLACK_BOT_TOKEN=xoxb-your-token
+```
+
 ## 実行方法
 
 ### 開発環境
@@ -39,9 +45,11 @@ python app.py
 gunicorn app:app -b 0.0.0.0:8080 -w 4 -k gevent
 ```
 
-## APIエンドポイント
+## Slackイベント
 
-- `GET /` - APIステータス確認
-- `GET /api/items` - すべてのアイテムを取得
-- `GET /api/items/{id}` - 特定のアイテムを取得
-- `POST /api/items` - 新しいアイテムを作成
+このボットは以下のSlackイベントに応答します：
+
+- `app_mention` - ボットがメンションされたとき
+- `message.im` - ボットにDMが送信されたとき
+
+どちらのイベントでも、ボットは「こんにちは」と返信します。

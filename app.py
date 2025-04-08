@@ -1,6 +1,7 @@
 from bottle import Bottle, run, request, response
 import json
 import os
+import threading
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -23,21 +24,34 @@ def enable_cors():
 def options_handler(path=None):
     return {}
 
-# ルートエンドポイント
-@app.route('/', method='GET')
-def index():
-    return {'status': 'ok', 'message': 'API is running'}
-
-# サンプルAPIエンドポイント - GETリクエスト
-@app.route('/api/items', method='GET')
-def get_items():
-    # サンプルデータ（実際のアプリケーションではデータベースなどから取得）
-    items = [
-        {'id': 1, 'name': 'Item 1', 'description': 'Description for item 1'},
-        {'id': 2, 'name': 'Item 2', 'description': 'Description for item 2'},
-        {'id': 3, 'name': 'Item 3', 'description': 'Description for item 3'}
-    ]
-    return {'status': 'success', 'data': items}
+# イベント処理関数（別スレッドで実行）
+def process_slack_event(event):
+    try:
+        event_type = event.get("type")
+        channel = event.get("channel")
+        
+        # app_mentionイベントの処理（ボットがメンションされた場合）
+        if event_type == "app_mention":
+            try:
+                slack_client.chat_postMessage(
+                    channel=channel,
+                    text="こんにちは"
+                )
+            except SlackApiError as e:
+                print(f"Error sending message: {e}")
+        
+        # DMメッセージイベントの処理
+        elif event_type == "message" and event.get("channel_type") == "im":
+            try:
+                slack_client.chat_postMessage(
+                    channel=channel,
+                    text="こんにちは"
+                )
+            except SlackApiError as e:
+                print(f"Error sending message: {e}")
+    
+    except Exception as e:
+        print(f"Error processing event: {e}")
 
 # Slackイベントの処理
 @app.route('/default/slack-subscriptions', method='POST')
@@ -54,25 +68,11 @@ def slack_events():
         if data.get("type") == "event_callback":
             event = data.get("event", {})
             
-            # メッセージイベントの処理
-            if event.get("type") == "message":
-                user = event.get("user")
-                text = event.get("text", "").strip()
-                channel = event.get("channel")
-                
-                # 「こんにちは」というメッセージに応答
-                if "こんにちは" in text:
-                    try:
-                        # Slackにメッセージを送信
-                        response_text = "こんにちは！お元気ですか？"
-                        slack_client.chat_postMessage(
-                            channel=channel,
-                            text=response_text
-                        )
-                    except SlackApiError as e:
-                        print(f"Error sending message: {e}")
+            # 別スレッドでイベント処理を行う
+            threading.Thread(target=process_slack_event, args=(event,)).start()
         
-        return {}  # 成功時は空のレスポンスを返す
+        # 即座に成功レスポンスを返す
+        return {}
         
     except Exception as e:
         response.status = 400
