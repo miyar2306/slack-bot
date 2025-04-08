@@ -2,6 +2,7 @@ from bottle import Bottle, run, request, response
 import json
 import os
 import threading
+import time
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -11,6 +12,11 @@ app = Bottle()
 # Slack APIトークンの設定
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "xoxb-your-token")
 slack_client = WebClient(token=SLACK_BOT_TOKEN)
+
+# 処理済みイベントを追跡するためのセット
+processed_events = set()
+# イベントIDの保持期間（秒）
+EVENT_RETENTION_PERIOD = 3600  # 1時間
 
 # CORSミドルウェア
 @app.hook('after_request')
@@ -62,7 +68,7 @@ def process_slack_event(event):
 def slack_events():
     try:
         data = request.json
-        print(data)  # デバッグ用
+        print(f"Received event: {json.dumps(data, indent=2)}")  # 詳細なデバッグ出力
         
         # Slack APIの検証チャレンジに応答
         if "challenge" in data:
@@ -70,7 +76,29 @@ def slack_events():
         
         # イベントコールバックの処理
         if data.get("type") == "event_callback":
+            # イベントIDを取得
+            event_id = data.get("event_id")
+            current_time = time.time()
+            
+            # 既に処理したイベントかチェック
+            if event_id in processed_events:
+                print(f"Duplicate event: {event_id}")
+                return {}
+            
+            # 処理済みイベントとして記録
+            processed_events.add(event_id)
+            
+            # メモリ使用量を制限するため、セットのサイズを制限
+            if len(processed_events) > 1000:
+                # 古いイベントIDを削除（簡易的な実装）
+                processed_events.clear()
+            
             event = data.get("event", {})
+            
+            # ボットメッセージは処理しない
+            if "bot_id" in event:
+                print(f"Ignoring bot message: {event.get('bot_id')}")
+                return {}
             
             # 別スレッドでイベント処理を行う
             threading.Thread(target=process_slack_event, args=(event,)).start()
