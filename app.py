@@ -24,6 +24,10 @@ def enable_cors():
 def options_handler(path=None):
     return {}
 
+@app.route('/', method='GET')
+def index():
+    return {'status': 'ok', 'message': 'API is running'}
+
 # イベント処理関数（別スレッドで実行）
 def process_slack_event(event):
     try:
