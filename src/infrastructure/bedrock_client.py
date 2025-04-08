@@ -13,7 +13,7 @@ class BedrockClient:
         """
         # IAMロールを使用して認証（認証情報の明示的な指定は不要）
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
-        self.model_id = "amazon.titan-text-express-v1"  # Novaモデル
+        self.model_id = "us.amazon.nova-pro-v1:0"  # Novaモデル
     
     def generate_response(self, message):
         """
@@ -50,11 +50,14 @@ class BedrockClient:
                         },
             )
             
-            # レスポンスのボディを解析
-            response_body = json.loads(response.get('body').read())
+            output_message = response['output']['message']
+            response_text = ""
+            for content in output_message['content']:
+                if 'text' in content:
+                    response_text += content['text'] + "\n"
             
             # 応答テキストを抽出
-            return response_body.get('results')[0].get('outputText')
+            return response_text.strip()
         except Exception as e:
             print(f"Error generating response: {e}")
             return "すみません、応答の生成中にエラーが発生しました。"
