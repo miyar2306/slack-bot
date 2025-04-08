@@ -13,13 +13,14 @@ class SlackClient:
         """
         self.client = WebClient(token=token)
     
-    def send_message(self, channel, text):
+    def send_message(self, channel, text, thread_ts=None):
         """
         指定したチャンネルにメッセージを送信
         
         Args:
             channel (str): メッセージ送信先のチャンネルID
             text (str): 送信するメッセージテキスト
+            thread_ts (str, optional): スレッドのタイムスタンプ（スレッドに返信する場合）
             
         Returns:
             bool: 送信成功時はTrue、失敗時はFalse
@@ -27,7 +28,8 @@ class SlackClient:
         try:
             self.client.chat_postMessage(
                 channel=channel,
-                text=text
+                text=text,
+                thread_ts=thread_ts
             )
             return True
         except SlackApiError as e:

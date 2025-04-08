@@ -73,7 +73,9 @@ class SlackService:
             
             # app_mentionイベントの処理（ボットがメンションされた場合）
             if event_type == "app_mention":
-                self.slack_client.send_message(channel, "こんにちは")
+                # メッセージのタイムスタンプを取得してスレッドで返信
+                thread_ts = event.get("ts")
+                self.slack_client.send_message(channel, "こんにちは", thread_ts=thread_ts)
             
             # DMメッセージイベントの処理
             elif event_type == "message" and event.get("channel_type") == "im":
