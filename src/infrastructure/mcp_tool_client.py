@@ -56,8 +56,8 @@ class MCPToolClient:
             raise
 
     def _normalize_name(self, name: str) -> str:
-        """Convert hyphenated names to underscore format"""
-        return name.replace('-', '_')
+        """Convert hyphenated and dotted names to underscore format"""
+        return name.replace('-', '_').replace('.', '_')
     
     def register_tool(self, name: str, description: str, input_schema: Dict, 
                       server_name: Optional[str] = None, original_tool_name: Optional[str] = None, 
@@ -105,9 +105,14 @@ class MCPToolClient:
         """
         tool_specs = []
         for normalized_name, tool in self._tools.items():
+            # Bedrockのツール名は[a-zA-Z0-9_-]+の正規表現パターンに一致する必要がある
+            # 既に_normalize_nameでドットをアンダースコアに変換しているが、
+            # 念のため他の特殊文字も置換する
+            safe_name = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in normalized_name)
+            
             tool_specs.append({
                 "toolSpec": {
-                    "name": normalized_name,
+                    "name": safe_name,
                     "description": tool['description'],
                     "inputSchema": {
                         "json": tool['input_schema']

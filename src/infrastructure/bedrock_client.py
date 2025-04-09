@@ -288,11 +288,6 @@ class BedrockClient:
             server_name = tool_info.get('server_name')
             original_tool_name = tool_info.get('original_tool_name', tool_name)
             
-            # fetchツールの場合は名前を修正
-            if 'fetch' in normalized_name.lower():
-                self.logger.info("Using 'fetch' as the original tool name")
-                original_tool_name = "fetch"
-            
             self.logger.info(f"Using direct session for tool: {tool_name}")
             self.logger.info(f"Server name: {server_name}, Original tool name: {original_tool_name}")
             
