@@ -195,6 +195,84 @@ class BedrockClient:
         tool_config = self._prepare_tool_config()
         return await self._make_bedrock_request(messages, system, tool_config, recursion_depth + 1)
     
+    async def _call_tool_with_direct_session(self, server_name, tool_name, arguments, timeout=30.0):
+        """
+        新しいセッションを作成して直接ツールを呼び出す
+        
+        Args:
+            server_name: サーバー名
+            tool_name: ツール名
+            arguments: ツール引数
+            timeout: タイムアウト時間（秒）
+            
+        Returns:
+            Any: ツール実行結果
+        """
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        import json
+        
+        # サーバー設定を取得
+        server_config = None
+        try:
+            with open("config/mcp_servers.json", 'r') as f:
+                config = json.load(f)
+                for srv in config.get('mcp_servers', []):
+                    if srv.get('name') == server_name:
+                        server_config = srv
+                        break
+        except Exception as e:
+            self.logger.error(f"Failed to load server config: {e}")
+            raise ValueError(f"Server configuration not found for: {server_name}")
+        
+        if not server_config:
+            raise ValueError(f"Server configuration not found for: {server_name}")
+        
+        # MCPサーバーのパラメータを設定
+        server_params = StdioServerParameters(
+            command=server_config.get('command'),
+            args=server_config.get('args', []),
+            env=server_config.get('env')
+        )
+        
+        self.logger.info(f"Creating new session for {server_name}")
+        
+        # MCPクライアントを作成
+        client = None
+        session = None
+        
+        try:
+            # クライアントとセッションを作成
+            client = stdio_client(server_params)
+            read, write = await client.__aenter__()
+            
+            session = ClientSession(read, write)
+            await session.__aenter__()
+            await session.initialize()
+            
+            self.logger.info(f"Calling {tool_name} directly with new session")
+            
+            # ツールを呼び出し
+            result = await asyncio.wait_for(
+                session.call_tool(tool_name, arguments=arguments),
+                timeout=timeout
+            )
+            
+            return result
+        finally:
+            # セッションとクライアントをクローズ
+            if session:
+                try:
+                    await session.__aexit__(None, None, None)
+                except Exception as e:
+                    self.logger.error(f"Error closing session: {e}")
+            
+            if client:
+                try:
+                    await client.__aexit__(None, None, None)
+                except Exception as e:
+                    self.logger.error(f"Error closing client: {e}")
+    
     async def _execute_tool(self, tool_request):
         """Execute a tool and format the result"""
         tool_name = tool_request['name']
@@ -208,36 +286,22 @@ class BedrockClient:
                 
             tool_info = self.tool_client._tools[normalized_name]
             server_name = tool_info.get('server_name')
+            original_tool_name = tool_info.get('original_tool_name', tool_name)
             
             # fetchツールの場合は名前を修正
             if 'fetch' in normalized_name.lower():
                 self.logger.info("Using 'fetch' as the original tool name")
                 original_tool_name = "fetch"
-            else:
-                original_tool_name = tool_info.get('original_tool_name', tool_name)
             
+            self.logger.info(f"Using direct session for tool: {tool_name}")
             self.logger.info(f"Server name: {server_name}, Original tool name: {original_tool_name}")
             
-            # タイムアウト設定
-            timeout = 30.0
-            
-            # サーバー名からセッションを取得
-            session = None
-            if server_name and server_name in self.tool_client._servers:
-                session = self.tool_client._servers[server_name]
-            elif self.tool_client.session:
-                session = self.tool_client.session
-                
-            if not session:
-                raise ValueError(f"No session available for tool: {tool_name}")
-            
-            self.logger.info(f"Using session: {session}")
-            self.logger.info(f"Arguments: {tool_request['input']}")
-            
-            # 直接セッションを使用してツールを呼び出し
-            result = await asyncio.wait_for(
-                session.call_tool(original_tool_name, arguments=tool_request['input']),
-                timeout=timeout
+            # すべてのツールで直接セッションを使用
+            result = await self._call_tool_with_direct_session(
+                server_name=server_name,
+                tool_name=original_tool_name,
+                arguments=tool_request['input'],
+                timeout=30.0
             )
             
             status = 'success'
@@ -251,11 +315,11 @@ class BedrockClient:
                 }
             }
         except asyncio.TimeoutError as te:
-            self.logger.error(f"Tool execution timed out after {timeout} seconds: {te}", exc_info=True)
+            self.logger.error(f"Tool execution timed out: {te}", exc_info=True)
             return {
                 'toolResult': {
                     'toolUseId': tool_request['toolUseId'],
-                    'content': [{'text': f"Tool execution timed out after {timeout} seconds"}],
+                    'content': [{'text': f"Tool execution timed out"}],
                     'status': 'error'
                 }
             }
