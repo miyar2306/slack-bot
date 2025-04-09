@@ -74,6 +74,9 @@ class MCPServerManager:
             # Register the server
             self.servers[name] = tool_client
             
+            # Add server session to main tool client
+            self.main_tool_client.add_server(name, tool_client.session)
+            
             # Get and register tools
             await tool_client.get_and_register_tools(name)
             

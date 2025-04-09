@@ -100,9 +100,24 @@ class BedrockClient:
             return tool_config
         return {}
     
-    async def _make_bedrock_request(self, messages, system, tool_config):
-        """Make request to Bedrock API and handle response"""
-        self.logger.info(f"Calling Bedrock with model: {self.model_id}")
+    async def _make_bedrock_request(self, messages, system, tool_config, recursion_depth=0):
+        """
+        Make request to Bedrock API and handle response
+        
+        Args:
+            messages: Messages to send to Bedrock
+            system: System prompt
+            tool_config: Tool configuration
+            recursion_depth: Current recursion depth (for limiting tool call recursion)
+        """
+        # Maximum recursion depth to prevent infinite loops
+        MAX_RECURSION_DEPTH = 5
+        
+        if recursion_depth >= MAX_RECURSION_DEPTH:
+            self.logger.warning(f"Maximum recursion depth ({MAX_RECURSION_DEPTH}) reached")
+            return f"I've reached the maximum number of tool calls. Here's what I know so far based on the tools I've used."
+        
+        self.logger.info(f"Calling Bedrock with model: {self.model_id} (recursion depth: {recursion_depth})")
         response = self.client.converse(
             modelId=self.model_id,
             messages=messages,
@@ -121,9 +136,9 @@ class BedrockClient:
         if stop_reason in ['end_turn', 'stop_sequence']:
             return self._extract_text_response(response)
         elif stop_reason == 'tool_use':
-            return await self._handle_tool_use(response, messages)
+            return await self._handle_tool_use(response, messages, recursion_depth)
         elif stop_reason == 'max_tokens':
-            return await self._handle_max_tokens(response, messages)
+            return await self._handle_max_tokens(response, messages, recursion_depth)
         else:
             self.logger.warning(f"Unknown stop reason: {stop_reason}")
             return f"Unknown stop reason: {stop_reason}"
@@ -138,9 +153,23 @@ class BedrockClient:
         
         return response_text.strip()
     
-    async def _handle_tool_use(self, response, messages):
-        """Handle tool use in Bedrock response"""
-        self.logger.info("Model requested tool use")
+    async def _handle_tool_use(self, response, messages, recursion_depth=0):
+        """
+        Handle tool use in Bedrock response
+        
+        Args:
+            response: Bedrock response
+            messages: Current message history
+            recursion_depth: Current recursion depth
+        """
+        # Maximum recursion depth to prevent infinite loops
+        MAX_RECURSION_DEPTH = 5
+        
+        if recursion_depth >= MAX_RECURSION_DEPTH:
+            self.logger.warning(f"Maximum tool recursion depth ({MAX_RECURSION_DEPTH}) reached")
+            return "I've reached the maximum number of tool calls. Here's what I know so far based on the tools I've used."
+            
+        self.logger.info(f"Model requested tool use (recursion depth: {recursion_depth})")
         tool_response = []
         
         for content_item in response['output']['message']['content']:
@@ -161,10 +190,10 @@ class BedrockClient:
             "content": tool_response
         })
         
-        self.logger.info("Making recursive call with tool results")
+        self.logger.info(f"Making recursive call with tool results (recursion depth: {recursion_depth})")
         system = self._prepare_system_prompt()
         tool_config = self._prepare_tool_config()
-        return await self._make_bedrock_request(messages, system, tool_config)
+        return await self._make_bedrock_request(messages, system, tool_config, recursion_depth + 1)
     
     async def _execute_tool(self, tool_request):
         """Execute a tool and format the result"""
@@ -204,9 +233,16 @@ class BedrockClient:
                 }
             }
     
-    async def _handle_max_tokens(self, response, messages):
-        """Handle max tokens reached in Bedrock response"""
-        self.logger.info("Max tokens reached, continuing generation")
+    async def _handle_max_tokens(self, response, messages, recursion_depth=0):
+        """
+        Handle max tokens reached in Bedrock response
+        
+        Args:
+            response: Bedrock response
+            messages: Current message history
+            recursion_depth: Current recursion depth
+        """
+        self.logger.info(f"Max tokens reached, continuing generation (recursion depth: {recursion_depth})")
         messages.append(response['output']['message'])
         messages.append({
             "role": "user",
@@ -215,4 +251,4 @@ class BedrockClient:
         
         system = self._prepare_system_prompt()
         tool_config = self._prepare_tool_config()
-        return await self._make_bedrock_request(messages, system, tool_config)
+        return await self._make_bedrock_request(messages, system, tool_config, recursion_depth + 1)

@@ -1,6 +1,6 @@
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from typing import Any, List, Dict, Callable
+from typing import Any, List, Dict, Optional
 import asyncio
 from .logger import setup_logger
 
@@ -21,6 +21,7 @@ class MCPToolClient:
         self._client = None
         self._tools = {}
         self._name_mapping = {}  # Maps normalized names to original names
+        self._servers = {}  # Maps server name to session
         
     async def __aenter__(self):
         """Async context manager entry"""
@@ -58,25 +59,42 @@ class MCPToolClient:
         """Convert hyphenated names to underscore format"""
         return name.replace('-', '_')
     
-    def register_tool(self, name: str, func: Callable, description: str, input_schema: Dict):
+    def register_tool(self, name: str, description: str, input_schema: Dict, 
+                      server_name: Optional[str] = None, original_tool_name: Optional[str] = None, 
+                      timeout: float = 30.0):
         """
         Register a new tool
         
         Args:
             name: Tool name
-            func: Tool execution function
             description: Tool description
             input_schema: Tool input schema
+            server_name: Name of the server this tool belongs to
+            original_tool_name: Original name of the tool on the server
+            timeout: Timeout for tool execution in seconds
         """
         normalized_name = self._normalize_name(name)
         self._name_mapping[normalized_name] = name
         self._tools[normalized_name] = {
-            'function': func,
             'description': description,
             'input_schema': input_schema,
-            'original_name': name
+            'original_name': name,
+            'server_name': server_name,
+            'original_tool_name': original_tool_name,
+            'timeout': timeout
         }
         self.logger.info(f"Registered tool: {name}")
+
+    def add_server(self, name: str, session: ClientSession):
+        """
+        Add a server session
+        
+        Args:
+            name: Server name
+            session: ClientSession instance
+        """
+        self._servers[name] = session
+        self.logger.info(f"Added server: {name}")
 
     def get_tools(self) -> Dict[str, List[Dict]]:
         """
@@ -140,7 +158,44 @@ class MCPToolClient:
             self.logger.error(f"Error retrieving tool list: {e}", exc_info=True)
             return []
 
-    async def call_tool(self, tool_name: str, arguments: dict, timeout: float = 30.0) -> Any:
+    async def _call_tool_with_session(self, session: ClientSession, tool_name: str, 
+                                     arguments: Dict, timeout: float) -> Any:
+        """
+        Call a tool with the specified session and timeout
+        
+        Args:
+            session: ClientSession to use
+            tool_name: Tool name
+            arguments: Tool arguments
+            timeout: Timeout in seconds
+            
+        Returns:
+            Any: Tool execution result
+        """
+        try:
+            self.logger.info(f"Calling tool on server: {tool_name} (timeout: {timeout}s)")
+            
+            try:
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout
+                )
+                self.logger.debug("Tool call successful")
+                return result
+            except asyncio.TimeoutError:
+                error_msg = f"Tool call timed out after {timeout} seconds: {tool_name}"
+                self.logger.error(error_msg)
+                return {"error": error_msg, "status": "timeout"}
+        except ConnectionError as e:
+            error_msg = f"Connection error: {str(e)}"
+            self.logger.error(f"Connection error calling tool {tool_name}: {e}", exc_info=True)
+            return {"error": error_msg, "status": "connection_error"}
+        except Exception as e:
+            error_msg = f"Tool execution error: {str(e)}"
+            self.logger.error(f"Error calling tool {tool_name}: {e}", exc_info=True)
+            return {"error": error_msg, "status": "execution_error"}
+
+    async def call_tool(self, tool_name: str, arguments: Dict, timeout: float = 30.0) -> Any:
         """
         Call a tool directly on the server
         
@@ -156,24 +211,7 @@ class MCPToolClient:
             self.logger.error("Cannot call tool: Not connected to MCP server")
             raise RuntimeError("Not connected to MCP server")
         
-        try:    
-            self.logger.info(f"Calling tool on server: {tool_name}")
-            
-            try:
-                result = await asyncio.wait_for(
-                    self.session.call_tool(tool_name, arguments=arguments),
-                    timeout=timeout
-                )
-                self.logger.debug("Tool call successful")
-                return result
-            except asyncio.TimeoutError:
-                error_msg = f"Tool call timed out after {timeout} seconds: {tool_name}"
-                self.logger.error(error_msg)
-                return {"error": error_msg}
-        except Exception as e:
-            error_msg = f"Tool execution error: {str(e)}"
-            self.logger.error(f"Error calling tool {tool_name}: {e}", exc_info=True)
-            return {"error": error_msg}
+        return await self._call_tool_with_session(self.session, tool_name, arguments, timeout)
 
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Any:
         """
@@ -185,25 +223,41 @@ class MCPToolClient:
             
         Returns:
             Any: Tool execution result
-            
-        Raises:
-            ValueError: If tool not found or execution fails
         """
         normalized_name = self._normalize_name(tool_name)
         
         if normalized_name not in self._tools:
             self.logger.error(f"Unknown tool: {normalized_name}")
-            raise ValueError(f"Unknown tool: {normalized_name}")
+            return {"error": f"Unknown tool: {normalized_name}", "status": "unknown_tool"}
         
-        try:
-            tool_func = self._tools[normalized_name]['function']
-            original_name = self._tools[normalized_name]['original_name']
-            result = await tool_func(original_name, tool_input)
-            self.logger.debug("Tool execution successful")
-            return result
-        except Exception as e:
-            self.logger.error(f"Tool execution error: {e}", exc_info=True)
-            raise ValueError(f"Tool execution error: {str(e)}")
+        tool_info = self._tools[normalized_name]
+        
+        # Direct execution if this is a server's own tool
+        if self.session and not tool_info.get('server_name'):
+            return await self.call_tool(tool_info['original_name'], tool_input, 
+                                       tool_info.get('timeout', 30.0))
+        
+        # Execute via server mapping
+        server_name = tool_info.get('server_name')
+        original_tool_name = tool_info.get('original_tool_name')
+        timeout = tool_info.get('timeout', 30.0)
+        
+        if not server_name or not original_tool_name:
+            self.logger.error(f"Tool {normalized_name} is missing server or original tool information")
+            return {"error": "Tool configuration error", "status": "config_error"}
+        
+        # Use this client's session if server name matches
+        if server_name in self._servers:
+            session = self._servers[server_name]
+            return await self._call_tool_with_session(session, original_tool_name, tool_input, timeout)
+        
+        # If this client has a session and no server mapping exists
+        if self.session:
+            self.logger.warning(f"Server {server_name} not found, using default session")
+            return await self._call_tool_with_session(self.session, original_tool_name, tool_input, timeout)
+            
+        self.logger.error(f"No session available for server: {server_name}")
+        return {"error": f"No session available for server: {server_name}", "status": "no_session"}
 
     async def get_and_register_tools(self, server_name: str, timeout: float = 30.0):
         """
@@ -225,6 +279,10 @@ class MCPToolClient:
         self.logger.info(f"Found {len(tools)} tools in server: {server_name}")
         registered_count = 0
         
+        # Add this client's session to servers mapping
+        if self.session:
+            self._servers[server_name] = self.session
+        
         for tool in tools:
             try:
                 prefixed_name = f"{server_name}_{tool.name}"
@@ -232,10 +290,11 @@ class MCPToolClient:
                 
                 self.register_tool(
                     name=prefixed_name,
-                    func=lambda tool_name, arguments, client=self, original_name=tool.name, timeout=tool_timeout: 
-                          client.call_tool(original_name, arguments, timeout=timeout),
                     description=f"[{server_name}] {tool.description}",
-                    input_schema=tool.inputSchema
+                    input_schema=tool.inputSchema,
+                    server_name=server_name,
+                    original_tool_name=tool.name,
+                    timeout=tool_timeout
                 )
                 registered_count += 1
             except Exception as e:
