@@ -119,13 +119,14 @@ class MCPClient:
             self.logger.error(f"Error retrieving tool list: {e}", exc_info=True)
             return []
 
-    async def call_tool(self, tool_name: str, arguments: dict) -> Any:
+    async def call_tool(self, tool_name: str, arguments: dict, timeout: float = 30.0) -> Any:
         """
         指定されたツールを引数と共に呼び出す
         
         Args:
             tool_name: ツール名
             arguments: ツールの引数
+            timeout: ツール呼び出しのタイムアウト秒数（デフォルト: 30秒）
             
         Returns:
             Any: ツールの実行結果
@@ -137,9 +138,24 @@ class MCPClient:
         try:    
             self.logger.info(f"Calling tool: {tool_name}")
             self.logger.debug(f"Tool arguments: {arguments}")
-            result = await self.session.call_tool(tool_name, arguments=arguments)
-            self.logger.debug("Tool call successful")
-            return result
+            
+            try:
+                # タイムアウト付きでツールを呼び出す
+                self.logger.debug(f"Setting timeout of {timeout} seconds for tool call")
+                result = await asyncio.wait_for(
+                    self.session.call_tool(tool_name, arguments=arguments),
+                    timeout=timeout
+                )
+                self.logger.debug("Tool call successful")
+                return result
+            except asyncio.TimeoutError:
+                self.logger.error(f"Tool call timed out after {timeout} seconds: {tool_name}")
+                raise TimeoutError(f"Tool call timed out after {timeout} seconds: {tool_name}")
         except Exception as e:
             self.logger.error(f"Error calling tool {tool_name}: {e}", exc_info=True)
-            raise
+            if isinstance(e, TimeoutError):
+                # タイムアウトエラーの場合は特別なメッセージを返す
+                return {"error": f"Tool call timed out: {tool_name}"}
+            else:
+                # その他のエラーの場合
+                return {"error": f"Tool execution error: {str(e)}"}

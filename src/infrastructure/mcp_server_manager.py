@@ -90,9 +90,12 @@ class MCPServerManager:
                         # ツール名にサーバー名をプレフィックスとして追加（ドットの代わりにアンダースコアを使用）
                         prefixed_name = f"{name}_{tool.name}"
                         self.logger.debug(f"Registering tool: {prefixed_name}")
+                        # fetchツールの場合は短いタイムアウトを設定
+                        timeout = 15.0 if tool.name == "fetch" else 30.0
+                        
                         self.tool_manager.register_tool(
                             name=prefixed_name,
-                            func=lambda tool_name, arguments, client=mcp_client, original_name=tool.name: client.call_tool(original_name, arguments),
+                            func=lambda tool_name, arguments, client=mcp_client, original_name=tool.name, timeout=timeout: client.call_tool(original_name, arguments, timeout=timeout),
                             description=f"[{name}] {tool.description}",
                             input_schema=tool.inputSchema
                         )

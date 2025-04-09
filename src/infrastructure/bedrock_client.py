@@ -146,21 +146,45 @@ class BedrockClient:
                         }
                         
                         # ツールを実行
+                        self.logger.info(f"Executing tool: {tool_request['name']}")
                         try:
-                            self.logger.info(f"Executing tool: {tool_request['name']}")
                             tool_result = await self.tool_manager.execute_tool(
                                 tool_request['name'], 
                                 tool_request['input']
                             )
                             
-                            self.logger.debug(f"Tool execution successful")
+                            # ツール実行結果がエラー辞書の場合
+                            if isinstance(tool_result, dict) and 'error' in tool_result:
+                                self.logger.warning(f"Tool returned error: {tool_result['error']}")
+                                tool_response.append({
+                                    'toolResult': {
+                                        'toolUseId': tool_request['toolUseId'],
+                                        'content': [{
+                                            'text': tool_result['error']
+                                        }],
+                                        'status': 'error'
+                                    }
+                                })
+                            else:
+                                self.logger.debug(f"Tool execution successful")
+                                tool_response.append({
+                                    'toolResult': {
+                                        'toolUseId': tool_request['toolUseId'],
+                                        'content': [{
+                                            'text': str(tool_result)
+                                        }],
+                                        'status': 'success'
+                                    }
+                                })
+                        except TimeoutError as te:
+                            self.logger.error(f"Tool execution timed out: {te}", exc_info=True)
                             tool_response.append({
                                 'toolResult': {
                                     'toolUseId': tool_request['toolUseId'],
                                     'content': [{
-                                        'text': str(tool_result)
+                                        'text': f"Tool execution timed out: {str(te)}"
                                     }],
-                                    'status': 'success'
+                                    'status': 'error'
                                 }
                             })
                         except Exception as e:
