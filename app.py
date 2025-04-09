@@ -17,7 +17,12 @@ def main():
     
     # 依存関係の構築
     slack_client = SlackClient(config.slack_bot_token)
-    bedrock_client = BedrockClient(region_name=config.aws_region)
+    bedrock_client = BedrockClient(
+        region_name=config.aws_region,
+        mcp_server_command=config.mcp_server_command,
+        mcp_server_args=config.mcp_server_args,
+        mcp_server_env=config.mcp_server_env
+    )
     slack_service = SlackService(
         slack_client=slack_client,
         bedrock_client=bedrock_client,
