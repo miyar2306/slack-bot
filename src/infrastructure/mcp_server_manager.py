@@ -64,15 +64,19 @@ class MCPServerManager:
             
             # 利用可能なツールを取得して登録
             tools = await mcp_client.get_available_tools()
-            for tool in tools:
-                # ツール名にサーバー名をプレフィックスとして追加
-                prefixed_name = f"{name}.{tool.name}"
-                self.tool_manager.register_tool(
-                    name=prefixed_name,
-                    func=lambda tool_name, arguments, client=mcp_client, original_name=tool.name: client.call_tool(original_name, arguments),
-                    description=f"[{name}] {tool.description}",
-                    input_schema=tool.inputSchema
-                )
+            if tools:  # ツールリストが空でない場合のみ処理
+                for tool in tools:
+                    try:
+                        # ツール名にサーバー名をプレフィックスとして追加
+                        prefixed_name = f"{name}.{tool.name}"
+                        self.tool_manager.register_tool(
+                            name=prefixed_name,
+                            func=lambda tool_name, arguments, client=mcp_client, original_name=tool.name: client.call_tool(original_name, arguments),
+                            description=f"[{name}] {tool.description}",
+                            input_schema=tool.inputSchema
+                        )
+                    except Exception as e:
+                        print(f"ツール '{name}.{getattr(tool, 'name', 'unknown')}' の登録エラー: {e}")
             
             print(f"MCPサーバー '{name}' に接続し、{len(tools)}個のツールを登録しました")
         except Exception as e:

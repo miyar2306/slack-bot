@@ -49,6 +49,12 @@ class MCPClient:
             # デバッグ情報を出力
             print(f"list_tools結果の型: {type(result)}")
             
+            # ListToolsResult型の場合（ログから判断）
+            if hasattr(result, 'tools'):
+                print(f"ListToolsResult.tools属性からツールリスト取得: {len(result.tools)}個のツールが見つかりました")
+                return result.tools
+            
+            # 以下は前回の実装のフォールバック処理
             try:
                 # 参考リポジトリと同じアンパック方法を試す
                 _, tools_list = result
@@ -83,9 +89,9 @@ class MCPClient:
                     print(f"応答がリスト: {len(result)}個の要素")
                     return result
                 
-                # その他の場合、結果をそのまま返す
-                print("未知の応答形式、結果をそのまま返します")
-                return result
+                # その他の場合、空のリストを返す
+                print("未知の応答形式、空のリストを返します")
+                return []
                 
         except Exception as e:
             print(f"ツール一覧の取得エラー: {e}")
