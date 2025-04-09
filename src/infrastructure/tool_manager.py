@@ -51,11 +51,14 @@ class ToolManager:
         tool_specs = []
         for normalized_name, tool in self._tools.items():
             # toolSpecキーの下にツール情報をネスト
+            # inputSchemaはjsonキーの下にネスト
             tool_specs.append({
                 "toolSpec": {
                     "name": normalized_name,
                     "description": tool['description'],
-                    "inputSchema": tool['input_schema']
+                    "inputSchema": {
+                        "json": tool['input_schema']
+                    }
                 }
             })
         
