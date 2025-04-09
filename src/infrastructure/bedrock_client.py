@@ -1,6 +1,6 @@
 import boto3
 import asyncio
-from .tool_manager import ToolManager
+from .mcp_tool_client import MCPToolClient
 from .logger import setup_logger
 
 class BedrockClient:
@@ -22,7 +22,7 @@ class BedrockClient:
         self.model_id = "us.amazon.nova-pro-v1:0"
         
         self.mcp_server_manager = mcp_server_manager
-        self.tool_manager = mcp_server_manager.get_tool_manager() if mcp_server_manager else ToolManager()
+        self.tool_client = mcp_server_manager.get_tool_manager() if mcp_server_manager else MCPToolClient(logger=self.logger)
         self.logger.info("BedrockClient initialized")
     
     def generate_response(self, message_or_conversation):
@@ -82,10 +82,10 @@ class BedrockClient:
         """Prepare system prompt with tool descriptions"""
         system_text = "You are a helpful AI assistant."
         
-        if hasattr(self, 'tool_manager') and self.tool_manager and self.tool_manager._tools:
-            self.logger.debug(f"Adding {len(self.tool_manager._tools)} tools to system prompt")
+        if hasattr(self, 'tool_client') and self.tool_client and self.tool_client._tools:
+            self.logger.debug(f"Adding {len(self.tool_client._tools)} tools to system prompt")
             system_text += " You have access to the following tools:\n\n"
-            for name, tool_info in self.tool_manager._tools.items():
+            for name, tool_info in self.tool_client._tools.items():
                 system_text += f"- {name}: {tool_info['description']}\n"
         else:
             system_text += " You have access to the following tools: Speak in Japanese"
@@ -94,8 +94,8 @@ class BedrockClient:
     
     def _prepare_tool_config(self):
         """Prepare tool configuration for Bedrock API"""
-        if hasattr(self, 'tool_manager') and self.tool_manager:
-            tool_config = self.tool_manager.get_tools()
+        if hasattr(self, 'tool_client') and self.tool_client:
+            tool_config = self.tool_client.get_tools()
             self.logger.debug(f"Tool config prepared with {len(tool_config.get('tools', []))} tools")
             return tool_config
         return {}
@@ -170,7 +170,7 @@ class BedrockClient:
         """Execute a tool and format the result"""
         self.logger.info(f"Executing tool: {tool_request['name']}")
         try:
-            tool_result = await self.tool_manager.execute_tool(
+            tool_result = await self.tool_client.execute_tool(
                 tool_request['name'], 
                 tool_request['input']
             )

@@ -1,7 +1,8 @@
 import asyncio
+import os
+import logging
 from bottle import run
 from dotenv import load_dotenv
-from src.infrastructure.config import Config
 from src.infrastructure.logger import setup_logger
 from src.infrastructure.slack_client import SlackClient
 from src.infrastructure.bedrock_client import BedrockClient
@@ -9,9 +10,9 @@ from src.infrastructure.mcp_server_manager import MCPServerManager
 from src.application.slack_service import SlackService
 from src.presentation.api import SlackAPI
 
-async def initialize_mcp_servers(config, logger):
+async def initialize_mcp_servers(mcp_config_file, logger):
     """Initialize MCP servers"""
-    mcp_server_manager = MCPServerManager(config.mcp_config_file, logger)
+    mcp_server_manager = MCPServerManager(mcp_config_file, logger)
     await mcp_server_manager.initialize()
     return mcp_server_manager
 
@@ -19,32 +20,44 @@ def main():
     """Application entry point"""
     load_dotenv()
     
-    config = Config()
-    logger = setup_logger("slack_bot", config.log_level)
+    # Load configuration from environment variables
+    slack_bot_token = os.environ.get("SLACK_BOT_TOKEN", "xoxb-your-token")
+    port = int(os.environ.get('PORT', 8080))
+    debug = os.environ.get('DEBUG', 'True').lower() == 'true'
+    event_retention_period = 3600  # 1 hour
+    aws_region = os.environ.get("AWS_REGION", "us-west-2")
+    mcp_config_file = os.environ.get("MCP_CONFIG_FILE", "config/mcp_servers.json")
+    
+    # Set up logging
+    level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, level_name, logging.INFO)
+    logger = setup_logger("slack_bot", log_level)
     logger.info("Application starting...")
     
+    # Initialize MCP servers
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    mcp_server_manager = loop.run_until_complete(initialize_mcp_servers(config, logger))
+    mcp_server_manager = loop.run_until_complete(initialize_mcp_servers(mcp_config_file, logger))
     
-    slack_client = SlackClient(config.slack_bot_token, logger)
+    # Set up services
+    slack_client = SlackClient(slack_bot_token, logger)
     bedrock_client = BedrockClient(
-        region_name=config.aws_region,
+        region_name=aws_region,
         mcp_server_manager=mcp_server_manager,
         logger=logger
     )
     slack_service = SlackService(
         slack_client=slack_client,
         bedrock_client=bedrock_client,
-        event_retention_period=config.event_retention_period,
+        event_retention_period=event_retention_period,
         logger=logger
     )
     slack_api = SlackAPI(slack_service, logger)
     
+    # Get and run the application
     app = slack_api.get_app()
-    
-    logger.info(f"Starting server on port {config.port}")
-    run(app, host='0.0.0.0', port=config.port, debug=config.debug)
+    logger.info(f"Starting server on port {port}")
+    run(app, host='0.0.0.0', port=port, debug=debug)
 
 if __name__ == '__main__':
     main()

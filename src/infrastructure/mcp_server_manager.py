@@ -1,9 +1,7 @@
 import json
-import asyncio
 from typing import Dict
 from mcp import StdioServerParameters
-from .mcp_client import MCPClient
-from .tool_manager import ToolManager
+from .mcp_tool_client import MCPToolClient
 from .logger import setup_logger
 
 class MCPServerManager:
@@ -19,8 +17,8 @@ class MCPServerManager:
         """
         self.config_file_path = config_file_path
         self.logger = logger or setup_logger(__name__)
-        self.servers = {}  # Map of server name -> MCPClient
-        self.tool_manager = ToolManager(logger=self.logger)
+        self.servers = {}  # Map of server name -> MCPToolClient
+        self.main_tool_client = MCPToolClient(logger=self.logger)  # Central tool client for all tools
         self.logger.info(f"MCPServerManager initialized with config file: {config_file_path}")
         
     async def initialize(self):
@@ -69,36 +67,25 @@ class MCPServerManager:
                 env=env
             )
             
-            mcp_client = MCPClient(server_params)
-            await mcp_client.connect()
+            # Create and connect the tool client
+            tool_client = MCPToolClient(server_params, logger=self.logger)
+            await tool_client.connect()
             
-            self.servers[name] = mcp_client
-            self.logger.info(f"Successfully connected to MCP server: {name}")
+            # Register the server
+            self.servers[name] = tool_client
             
-            tools = await mcp_client.get_available_tools()
+            # Get and register tools
+            await tool_client.get_and_register_tools(name)
             
-            if tools:
-                self.logger.info(f"Found {len(tools)} tools in server: {name}")
-                for tool in tools:
-                    try:
-                        prefixed_name = f"{name}_{tool.name}"
-                        timeout = 15.0 if tool.name == "fetch" else 30.0
-                        
-                        self.tool_manager.register_tool(
-                            name=prefixed_name,
-                            func=lambda tool_name, arguments, client=mcp_client, original_name=tool.name, timeout=timeout: client.call_tool(original_name, arguments, timeout=timeout),
-                            description=f"[{name}] {tool.description}",
-                            input_schema=tool.inputSchema
-                        )
-                    except Exception as e:
-                        self.logger.error(f"Error registering tool '{name}_{getattr(tool, 'name', 'unknown')}': {e}", exc_info=True)
-            else:
-                self.logger.info(f"No tools found in server: {name}")
-            
-            self.logger.info(f"Successfully initialized MCP server '{name}' with {len(tools) if tools else 0} tools")
+            # Copy all tools to the main tool client
+            for normalized_name, tool in tool_client._tools.items():
+                self.main_tool_client._tools[normalized_name] = tool
+                self.main_tool_client._name_mapping[normalized_name] = tool['original_name']
+                
+            self.logger.info(f"Successfully initialized MCP server '{name}' with tools")
         except Exception as e:
             self.logger.error(f"Error initializing MCP server '{name}': {e}", exc_info=True)
     
-    def get_tool_manager(self) -> ToolManager:
-        """Get the tool manager instance"""
-        return self.tool_manager
+    def get_tool_manager(self):
+        """Get the main tool client instance"""
+        return self.main_tool_client
