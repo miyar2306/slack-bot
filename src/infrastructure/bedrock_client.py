@@ -80,15 +80,13 @@ class BedrockClient:
     
     def _prepare_system_prompt(self):
         """Prepare system prompt with tool descriptions"""
-        system_text = "You are a helpful AI assistant."
+        system_text = "You are a helpful AI assistant. Speak in Japanese"
         
         if hasattr(self, 'tool_client') and self.tool_client and self.tool_client._tools:
             self.logger.debug(f"Adding {len(self.tool_client._tools)} tools to system prompt")
             system_text += " You have access to the following tools:\n\n"
             for name, tool_info in self.tool_client._tools.items():
                 system_text += f"- {name}: {tool_info['description']}\n"
-        else:
-            system_text += " You have access to the following tools: Speak in Japanese"
         
         return [{"text": system_text}]
     
@@ -123,7 +121,7 @@ class BedrockClient:
             messages=messages,
             system=system,
             inferenceConfig={
-                "maxTokens": 300,
+                "maxTokens": 5000,
                 "topP": 0.1,
                 "temperature": 0.3
             },
