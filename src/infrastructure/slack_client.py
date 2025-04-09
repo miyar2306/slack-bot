@@ -1,17 +1,20 @@
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from src.infrastructure.logger import setup_logger
 
 class SlackClient:
     """Slack APIとの通信を担当するクラス"""
     
-    def __init__(self, token):
+    def __init__(self, token, logger=None):
         """
         SlackClientの初期化
         
         Args:
             token (str): Slack APIトークン
+            logger: Logger instance (optional)
         """
         self.client = WebClient(token=token)
+        self.logger = logger or setup_logger(__name__)
     
     def send_message(self, channel, text, thread_ts=None):
         """
@@ -26,6 +29,7 @@ class SlackClient:
             bool: 送信成功時はTrue、失敗時はFalse
         """
         try:
+            self.logger.info(f"Sending message to channel {channel}")
             self.client.chat_postMessage(
                 channel=channel,
                 text=text,
@@ -33,7 +37,7 @@ class SlackClient:
             )
             return True
         except SlackApiError as e:
-            print(f"Error sending message: {e}")
+            self.logger.error(f"Error sending message: {e}")
             return False
     
     def get_thread_messages(self, channel, thread_ts):
@@ -48,6 +52,7 @@ class SlackClient:
             list: スレッド内のメッセージのリスト（古い順）
         """
         try:
+            self.logger.debug(f"Getting thread messages from channel {channel}, thread {thread_ts}")
             # conversations.repliesエンドポイントを使用してスレッド内のメッセージを取得
             response = self.client.conversations_replies(
                 channel=channel,
@@ -55,7 +60,9 @@ class SlackClient:
             )
             
             # メッセージのリストを返す（最初のメッセージを含む）
-            return response.get('messages', [])
+            messages = response.get('messages', [])
+            self.logger.debug(f"Retrieved {len(messages)} messages from thread")
+            return messages
         except SlackApiError as e:
-            print(f"Error getting thread messages: {e}")
+            self.logger.error(f"Error getting thread messages: {e}")
             return []

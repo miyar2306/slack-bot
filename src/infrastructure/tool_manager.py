@@ -1,14 +1,22 @@
 from typing import Any, Dict, List, Callable
 import inspect
 import json
+from .logger import setup_logger
 
 class ToolManager:
     """ツールの管理と実行を担当するクラス"""
     
-    def __init__(self):
-        """ToolManagerの初期化"""
+    def __init__(self, logger=None):
+        """
+        ToolManagerの初期化
+        
+        Args:
+            logger: Logger instance (optional)
+        """
         self._tools = {}
         self._name_mapping = {}  # 正規化された名前から元の名前へのマッピング
+        self.logger = logger or setup_logger(__name__)
+        self.logger.info("ToolManager initialized")
     
     def _normalize_name(self, name: str) -> str:
         """
@@ -40,6 +48,7 @@ class ToolManager:
             'input_schema': input_schema,
             'original_name': name
         }
+        self.logger.info(f"Registered tool: {name} (normalized: {normalized_name})")
 
     def get_tools(self) -> Dict[str, List[Dict]]:
         """
@@ -79,20 +88,27 @@ class ToolManager:
             ValueError: ツールが見つからない場合や実行エラーの場合
         """
         normalized_name = self._normalize_name(tool_name)
+        self.logger.debug(f"Executing tool: {tool_name} (normalized: {normalized_name})")
         
         if normalized_name not in self._tools:
-            raise ValueError(f"不明なツール: {normalized_name}")
+            self.logger.error(f"Unknown tool: {normalized_name}")
+            raise ValueError(f"Unknown tool: {normalized_name}")
         
         try:
             tool_func = self._tools[normalized_name]['function']
             # 実際の関数を呼び出す際には元の名前を使用
             original_name = self._tools[normalized_name]['original_name']
+            self.logger.debug(f"Calling tool function with original name: {original_name}")
             result = await tool_func(original_name, tool_input)
+            self.logger.debug("Tool execution successful")
             return result
         except Exception as e:
-            raise ValueError(f"ツールの実行エラー: {str(e)}")
+            self.logger.error(f"Tool execution error: {e}", exc_info=True)
+            raise ValueError(f"Tool execution error: {str(e)}")
 
     def clear_tools(self):
         """登録されたすべてのツールをクリア"""
+        tool_count = len(self._tools)
         self._tools.clear()
         self._name_mapping.clear()
+        self.logger.info(f"Cleared {tool_count} tools")

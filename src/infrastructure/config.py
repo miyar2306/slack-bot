@@ -1,4 +1,5 @@
 import os
+import logging
 
 class Config:
     """アプリケーション設定を管理するクラス"""
@@ -19,3 +20,16 @@ class Config:
         
         # MCP設定
         self.mcp_config_file = os.environ.get("MCP_CONFIG_FILE", "config/mcp_servers.json")
+        
+        # ログ設定
+        self.log_level = self._get_log_level()
+    
+    def _get_log_level(self):
+        """
+        Get log level from environment variable
+        
+        Returns:
+            int: Logging level (from logging module)
+        """
+        level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+        return getattr(logging, level_name, logging.INFO)
