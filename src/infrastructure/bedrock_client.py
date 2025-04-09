@@ -341,8 +341,9 @@ class BedrockClient:
         }
         messages.append(final_instruction)
         
-        # Generate final response without tool configuration
+        # Generate final response with tool configuration (but instruct not to use tools)
         self.logger.info("Generating final response based on collected information")
+        tool_config = self._prepare_tool_config()  # Get normal tool configuration
         response = self.client.converse(
             modelId=self.model_id,
             messages=messages,
@@ -351,8 +352,8 @@ class BedrockClient:
                 "maxTokens": 5000,
                 "topP": 0.1,
                 "temperature": 0.3
-            }
-            # Intentionally omitting toolConfig
+            },
+            toolConfig=tool_config  # Include tool configuration
         )
         
         return self._extract_text_response(response)
