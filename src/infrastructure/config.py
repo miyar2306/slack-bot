@@ -18,6 +18,4 @@ class Config:
         self.aws_region = os.environ.get("AWS_REGION", "us-west-2")
         
         # MCP設定
-        self.mcp_server_command = os.environ.get("MCP_SERVER_COMMAND", "uvx")
-        self.mcp_server_args = os.environ.get("MCP_SERVER_ARGS", "mcp-server-sqlite --db-path ~/test.db").split()
-        self.mcp_server_env = None
+        self.mcp_config_file = os.environ.get("MCP_CONFIG_FILE", "config/mcp_servers.json")

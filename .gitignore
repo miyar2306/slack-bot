@@ -23,3 +23,4 @@ venv/
 # その他
 .DS_Store
 *.swp
+config/mcp_servers.json
