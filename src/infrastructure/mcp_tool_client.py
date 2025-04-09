@@ -286,7 +286,7 @@ class MCPToolClient:
         for tool in tools:
             try:
                 prefixed_name = f"{server_name}_{tool.name}"
-                tool_timeout = 15.0 if tool.name == "fetch" else timeout
+                tool_timeout = timeout  # すべてのツールで同じタイムアウト値を使用
                 
                 self.register_tool(
                     name=prefixed_name,

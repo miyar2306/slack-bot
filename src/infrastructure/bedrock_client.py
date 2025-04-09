@@ -197,15 +197,40 @@ class BedrockClient:
     
     async def _execute_tool(self, tool_request):
         """Execute a tool and format the result"""
-        self.logger.info(f"Executing tool: {tool_request['name']}")
+        tool_name = tool_request['name']
+        self.logger.info(f"Executing tool: {tool_name}")
+        
         try:
-            tool_result = await self.tool_client.execute_tool(
-                tool_request['name'], 
-                tool_request['input']
+            # ツール名からサーバー名とオリジナルツール名を取得
+            normalized_name = self.tool_client._normalize_name(tool_name)
+            if normalized_name not in self.tool_client._tools:
+                raise ValueError(f"Unknown tool: {normalized_name}")
+                
+            tool_info = self.tool_client._tools[normalized_name]
+            server_name = tool_info.get('server_name')
+            original_tool_name = tool_info.get('original_tool_name', tool_name)
+            
+            # タイムアウト設定 - すべてのツールで同じ値を使用
+            timeout = 30.0
+            
+            # サーバー名からセッションを取得
+            session = None
+            if server_name and server_name in self.tool_client._servers:
+                session = self.tool_client._servers[server_name]
+            elif self.tool_client.session:
+                session = self.tool_client.session
+                
+            if not session:
+                raise ValueError(f"No session available for tool: {tool_name}")
+                
+            # 直接セッションを使用してツールを呼び出し
+            result = await asyncio.wait_for(
+                session.call_tool(original_tool_name, arguments=tool_request['input']),
+                timeout=timeout
             )
             
-            status = 'error' if isinstance(tool_result, dict) and 'error' in tool_result else 'success'
-            content_text = tool_result['error'] if status == 'error' else str(tool_result)
+            status = 'success'
+            content_text = str(result)
             
             return {
                 'toolResult': {
@@ -214,12 +239,12 @@ class BedrockClient:
                     'status': status
                 }
             }
-        except TimeoutError as te:
-            self.logger.error(f"Tool execution timed out: {te}", exc_info=True)
+        except asyncio.TimeoutError as te:
+            self.logger.error(f"Tool execution timed out after {timeout} seconds: {te}", exc_info=True)
             return {
                 'toolResult': {
                     'toolUseId': tool_request['toolUseId'],
-                    'content': [{'text': f"Tool execution timed out: {str(te)}"}],
+                    'content': [{'text': f"Tool execution timed out after {timeout} seconds"}],
                     'status': 'error'
                 }
             }
