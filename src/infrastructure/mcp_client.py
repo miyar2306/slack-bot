@@ -42,10 +42,60 @@ class MCPClient:
         if not self.session:
             raise RuntimeError("MCPサーバーに接続されていません")
             
-        tools = await self.session.list_tools()
-        _, tools_list = tools
-        _, tools_list = tools_list
-        return tools_list
+        try:
+            # list_toolsの結果を取得
+            result = await self.session.list_tools()
+            
+            # 応答からツールリストを抽出する汎用的な関数
+            def extract_tools(obj):
+                """
+                応答オブジェクトからツールリストを再帰的に抽出
+                
+                Args:
+                    obj: 応答オブジェクト（リスト、タプル、辞書など）
+                    
+                Returns:
+                    List: ツールのリスト
+                """
+                # リストまたはタプルの場合、各要素を再帰的に処理
+                if isinstance(obj, (list, tuple)):
+                    for item in obj:
+                        tools = extract_tools(item)
+                        if tools:
+                            return tools
+                
+                # 辞書の場合、キーに'tools'があればその値を返す
+                # または各値を再帰的に処理
+                elif isinstance(obj, dict):
+                    if 'tools' in obj:
+                        return obj['tools']
+                    
+                    for value in obj.values():
+                        tools = extract_tools(value)
+                        if tools:
+                            return tools
+                
+                # objがツールのリストである場合（各要素にname, description, inputSchemaを持つ）
+                if isinstance(obj, list) and all(isinstance(item, object) and 
+                                                hasattr(item, 'name') and 
+                                                hasattr(item, 'description') for item in obj):
+                    return obj
+                
+                return None
+            
+            # 応答からツールリストを抽出
+            tools_list = extract_tools(result)
+            
+            # ツールリストが見つからない場合は空のリストを返す
+            if tools_list is None:
+                print("警告: ツールリストが見つかりませんでした")
+                return []
+                
+            return tools_list
+            
+        except Exception as e:
+            print(f"ツール一覧の取得エラー: {e}")
+            return []
 
     async def call_tool(self, tool_name: str, arguments: dict) -> Any:
         """
