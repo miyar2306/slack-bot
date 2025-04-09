@@ -208,9 +208,17 @@ class BedrockClient:
                 
             tool_info = self.tool_client._tools[normalized_name]
             server_name = tool_info.get('server_name')
-            original_tool_name = tool_info.get('original_tool_name', tool_name)
             
-            # タイムアウト設定 - すべてのツールで同じ値を使用
+            # fetchツールの場合は名前を修正
+            if 'fetch' in normalized_name.lower():
+                self.logger.info("Using 'fetch' as the original tool name")
+                original_tool_name = "fetch"
+            else:
+                original_tool_name = tool_info.get('original_tool_name', tool_name)
+            
+            self.logger.info(f"Server name: {server_name}, Original tool name: {original_tool_name}")
+            
+            # タイムアウト設定
             timeout = 30.0
             
             # サーバー名からセッションを取得
@@ -222,7 +230,10 @@ class BedrockClient:
                 
             if not session:
                 raise ValueError(f"No session available for tool: {tool_name}")
-                
+            
+            self.logger.info(f"Using session: {session}")
+            self.logger.info(f"Arguments: {tool_request['input']}")
+            
             # 直接セッションを使用してツールを呼び出し
             result = await asyncio.wait_for(
                 session.call_tool(original_tool_name, arguments=tool_request['input']),
