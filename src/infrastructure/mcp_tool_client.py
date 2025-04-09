@@ -110,6 +110,26 @@ class MCPToolClient:
             # 念のため他の特殊文字も置換する
             safe_name = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in normalized_name)
             
+            # ツール名が64文字を超える場合は切り詰める
+            if len(safe_name) > 64:
+                self.logger.warning(f"Tool name '{safe_name}' exceeds 64 characters, truncating")
+                # サーバー名とツール名の区切りを保持しつつ、64文字に収める
+                parts = safe_name.split('_', 1)
+                if len(parts) > 1:
+                    server_prefix = parts[0]
+                    tool_part = parts[1]
+                    # サーバー名を短くして、ツール名の一部を保持
+                    max_server_len = 20  # サーバー名の最大長
+                    if len(server_prefix) > max_server_len:
+                        server_prefix = server_prefix[:max_server_len]
+                    # 残りのスペースをツール名に割り当て
+                    remaining_space = 64 - len(server_prefix) - 1  # 1は'_'の分
+                    tool_part = tool_part[-remaining_space:] if len(tool_part) > remaining_space else tool_part
+                    safe_name = f"{server_prefix}_{tool_part}"
+                else:
+                    # 区切りがない場合は単純に切り詰め
+                    safe_name = safe_name[:64]
+            
             tool_specs.append({
                 "toolSpec": {
                     "name": safe_name,
