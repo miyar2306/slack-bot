@@ -1,44 +1,34 @@
 from typing import Any, Dict, List, Callable
-import inspect
-import json
 from .logger import setup_logger
 
 class ToolManager:
-    """ツールの管理と実行を担当するクラス"""
+    """Manages tool registration and execution"""
     
     def __init__(self, logger=None):
         """
-        ToolManagerの初期化
+        Initialize ToolManager
         
         Args:
             logger: Logger instance (optional)
         """
         self._tools = {}
-        self._name_mapping = {}  # 正規化された名前から元の名前へのマッピング
+        self._name_mapping = {}  # Maps normalized names to original names
         self.logger = logger or setup_logger(__name__)
         self.logger.info("ToolManager initialized")
     
     def _normalize_name(self, name: str) -> str:
-        """
-        ハイフン付きの名前をアンダースコア形式に変換
-        
-        Args:
-            name: 元のツール名
-            
-        Returns:
-            str: 正規化されたツール名
-        """
+        """Convert hyphenated names to underscore format"""
         return name.replace('-', '_')
     
     def register_tool(self, name: str, func: Callable, description: str, input_schema: Dict):
         """
-        新しいツールをシステムに登録
+        Register a new tool
         
         Args:
-            name: ツール名
-            func: ツール実行関数
-            description: ツールの説明
-            input_schema: ツールの入力スキーマ
+            name: Tool name
+            func: Tool execution function
+            description: Tool description
+            input_schema: Tool input schema
         """
         normalized_name = self._normalize_name(name)
         self._name_mapping[normalized_name] = name
@@ -48,19 +38,17 @@ class ToolManager:
             'input_schema': input_schema,
             'original_name': name
         }
-        self.logger.info(f"Registered tool: {name} (normalized: {normalized_name})")
+        self.logger.info(f"Registered tool: {name}")
 
     def get_tools(self) -> Dict[str, List[Dict]]:
         """
-        Bedrockの形式に合わせたツール仕様を生成
+        Generate tool specifications in Bedrock format
         
         Returns:
-            Dict: ツール仕様の辞書
+            Dict: Tool specifications dictionary
         """
         tool_specs = []
         for normalized_name, tool in self._tools.items():
-            # toolSpecキーの下にツール情報をネスト
-            # inputSchemaはjsonキーの下にネスト
             tool_specs.append({
                 "toolSpec": {
                     "name": normalized_name,
@@ -75,20 +63,19 @@ class ToolManager:
 
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Any:
         """
-        エージェントのリクエストに基づいてツールを実行
+        Execute a tool based on agent request
         
         Args:
-            tool_name: ツール名
-            tool_input: ツールの入力パラメータ
+            tool_name: Tool name
+            tool_input: Tool input parameters
             
         Returns:
-            Any: ツールの実行結果
+            Any: Tool execution result
             
         Raises:
-            ValueError: ツールが見つからない場合や実行エラーの場合
+            ValueError: If tool not found or execution fails
         """
         normalized_name = self._normalize_name(tool_name)
-        self.logger.debug(f"Executing tool: {tool_name} (normalized: {normalized_name})")
         
         if normalized_name not in self._tools:
             self.logger.error(f"Unknown tool: {normalized_name}")
@@ -96,9 +83,7 @@ class ToolManager:
         
         try:
             tool_func = self._tools[normalized_name]['function']
-            # 実際の関数を呼び出す際には元の名前を使用
             original_name = self._tools[normalized_name]['original_name']
-            self.logger.debug(f"Calling tool function with original name: {original_name}")
             result = await tool_func(original_name, tool_input)
             self.logger.debug("Tool execution successful")
             return result
@@ -107,7 +92,7 @@ class ToolManager:
             raise ValueError(f"Tool execution error: {str(e)}")
 
     def clear_tools(self):
-        """登録されたすべてのツールをクリア"""
+        """Clear all registered tools"""
         tool_count = len(self._tools)
         self._tools.clear()
         self._name_mapping.clear()

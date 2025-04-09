@@ -3,14 +3,14 @@ from slack_sdk.errors import SlackApiError
 from src.infrastructure.logger import setup_logger
 
 class SlackClient:
-    """Slack APIとの通信を担当するクラス"""
+    """Handles communication with Slack API"""
     
     def __init__(self, token, logger=None):
         """
-        SlackClientの初期化
+        Initialize SlackClient
         
         Args:
-            token (str): Slack APIトークン
+            token (str): Slack API token
             logger: Logger instance (optional)
         """
         self.client = WebClient(token=token)
@@ -18,15 +18,15 @@ class SlackClient:
     
     def send_message(self, channel, text, thread_ts=None):
         """
-        指定したチャンネルにメッセージを送信
+        Send a message to a specified channel
         
         Args:
-            channel (str): メッセージ送信先のチャンネルID
-            text (str): 送信するメッセージテキスト
-            thread_ts (str, optional): スレッドのタイムスタンプ（スレッドに返信する場合）
+            channel (str): Channel ID to send message to
+            text (str): Message text to send
+            thread_ts (str, optional): Thread timestamp (for replies)
             
         Returns:
-            bool: 送信成功時はTrue、失敗時はFalse
+            bool: True if successful, False otherwise
         """
         try:
             self.logger.info(f"Sending message to channel {channel}")
@@ -42,24 +42,22 @@ class SlackClient:
     
     def get_thread_messages(self, channel, thread_ts):
         """
-        指定したスレッド内の全メッセージを取得
+        Get all messages in a thread
         
         Args:
-            channel (str): チャンネルID
-            thread_ts (str): スレッドのタイムスタンプ
+            channel (str): Channel ID
+            thread_ts (str): Thread timestamp
             
         Returns:
-            list: スレッド内のメッセージのリスト（古い順）
+            list: List of messages in the thread (chronological order)
         """
         try:
             self.logger.debug(f"Getting thread messages from channel {channel}, thread {thread_ts}")
-            # conversations.repliesエンドポイントを使用してスレッド内のメッセージを取得
             response = self.client.conversations_replies(
                 channel=channel,
                 ts=thread_ts
             )
             
-            # メッセージのリストを返す（最初のメッセージを含む）
             messages = response.get('messages', [])
             self.logger.debug(f"Retrieved {len(messages)} messages from thread")
             return messages
