@@ -69,11 +69,11 @@ class BedrockClient:
         
         # ツールの説明をシステムプロンプトに追加
         if hasattr(self, 'tool_manager') and self.tool_manager:
-            tools = self.tool_manager.get_tools()
-            if tools:
+            # ツール情報を直接取得（内部の_toolsから）
+            if self.tool_manager._tools:
                 system_text += " You have access to the following tools:\n\n"
-                for tool in tools:
-                    system_text += f"- {tool['name']}: {tool['description']}\n"
+                for name, tool_info in self.tool_manager._tools.items():
+                    system_text += f"- {name}: {tool_info['description']}\n"
         else:
             system_text += " You have access to the following tools: Speak in Japanese"
         
@@ -83,9 +83,9 @@ class BedrockClient:
             # ツール設定を準備
             tool_config = {}
             if hasattr(self, 'tool_manager') and self.tool_manager:
-                tools = self.tool_manager.get_tools()
-                if tools:
-                    tool_config = {"tools": tools}
+                # get_toolsメソッドが直接正しい形式を返すようになったため、
+                # そのまま使用できる
+                tool_config = self.tool_manager.get_tools()
             
             # converseメソッドを使用
             response = self.client.converse(

@@ -43,20 +43,23 @@ class ToolManager:
 
     def get_tools(self) -> Dict[str, List[Dict]]:
         """
-        ツール仕様を生成
+        Bedrockの形式に合わせたツール仕様を生成
         
         Returns:
             Dict: ツール仕様の辞書
         """
         tool_specs = []
         for normalized_name, tool in self._tools.items():
+            # toolSpecキーの下にツール情報をネスト
             tool_specs.append({
-                'name': normalized_name,
-                'description': tool['description'],
-                'inputSchema': tool['input_schema']
+                "toolSpec": {
+                    "name": normalized_name,
+                    "description": tool['description'],
+                    "inputSchema": tool['input_schema']
+                }
             })
         
-        return tool_specs
+        return {"tools": tool_specs}
 
     async def execute_tool(self, tool_name: str, tool_input: Dict[str, Any]) -> Any:
         """
