@@ -46,53 +46,47 @@ class MCPClient:
             # list_toolsの結果を取得
             result = await self.session.list_tools()
             
-            # 応答からツールリストを抽出する汎用的な関数
-            def extract_tools(obj):
-                """
-                応答オブジェクトからツールリストを再帰的に抽出
-                
-                Args:
-                    obj: 応答オブジェクト（リスト、タプル、辞書など）
-                    
-                Returns:
-                    List: ツールのリスト
-                """
-                # リストまたはタプルの場合、各要素を再帰的に処理
-                if isinstance(obj, (list, tuple)):
-                    for item in obj:
-                        tools = extract_tools(item)
-                        if tools:
-                            return tools
-                
-                # 辞書の場合、キーに'tools'があればその値を返す
-                # または各値を再帰的に処理
-                elif isinstance(obj, dict):
-                    if 'tools' in obj:
-                        return obj['tools']
-                    
-                    for value in obj.values():
-                        tools = extract_tools(value)
-                        if tools:
-                            return tools
-                
-                # objがツールのリストである場合（各要素にname, description, inputSchemaを持つ）
-                if isinstance(obj, list) and all(isinstance(item, object) and 
-                                                hasattr(item, 'name') and 
-                                                hasattr(item, 'description') for item in obj):
-                    return obj
-                
-                return None
+            # デバッグ情報を出力
+            print(f"list_tools結果の型: {type(result)}")
             
-            # 応答からツールリストを抽出
-            tools_list = extract_tools(result)
-            
-            # ツールリストが見つからない場合は空のリストを返す
-            if tools_list is None:
-                print("警告: ツールリストが見つかりませんでした")
-                return []
+            try:
+                # 参考リポジトリと同じアンパック方法を試す
+                _, tools_list = result
+                _, tools_list = tools_list
                 
-            return tools_list
-            
+                # 成功した場合、ツールリストの情報を出力
+                print(f"ツールリスト取得成功: {len(tools_list)}個のツールが見つかりました")
+                return tools_list
+                
+            except ValueError as e:
+                # アンパックに失敗した場合、応答の構造を詳細に調査
+                print(f"標準的なアンパックに失敗: {e}")
+                print(f"応答の構造: {result}")
+                
+                # 応答がタプルの場合、異なるアンパック方法を試す
+                if isinstance(result, tuple) and len(result) == 2:
+                    _, content = result
+                    if isinstance(content, tuple) and len(content) >= 1:
+                        # 最初の要素を取得
+                        tools_list = content[0]
+                        print(f"代替方法でツールリスト取得: {len(tools_list) if isinstance(tools_list, list) else 'リストではありません'}")
+                        return tools_list
+                
+                # 応答が辞書の場合
+                elif isinstance(result, dict) and 'tools' in result:
+                    tools_list = result['tools']
+                    print(f"辞書からツールリスト取得: {len(tools_list)}")
+                    return tools_list
+                
+                # 応答がリストの場合、そのまま返す
+                elif isinstance(result, list):
+                    print(f"応答がリスト: {len(result)}個の要素")
+                    return result
+                
+                # その他の場合、結果をそのまま返す
+                print("未知の応答形式、結果をそのまま返します")
+                return result
+                
         except Exception as e:
             print(f"ツール一覧の取得エラー: {e}")
             return []
