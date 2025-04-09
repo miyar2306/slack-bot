@@ -6,6 +6,9 @@ from .logger import setup_logger
 class BedrockClient:
     """Handles communication with Amazon Bedrock"""
     
+    # Define maximum recursion depth as class variable
+    MAX_RECURSION_DEPTH = 5
+    
     def __init__(self, region_name, mcp_server_manager=None, logger=None):
         """
         Initialize BedrockClient
@@ -19,7 +22,7 @@ class BedrockClient:
         self.logger.info(f"Initializing BedrockClient with region: {region_name}")
         
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
-        self.model_id = "us.amazon.nova-pro-v1:0"
+        self.model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         
         self.mcp_server_manager = mcp_server_manager
         self.tool_client = mcp_server_manager.get_tool_manager() if mcp_server_manager else MCPToolClient(logger=self.logger)
@@ -108,12 +111,9 @@ class BedrockClient:
             tool_config: Tool configuration
             recursion_depth: Current recursion depth (for limiting tool call recursion)
         """
-        # Maximum recursion depth to prevent infinite loops
-        MAX_RECURSION_DEPTH = 5
-        
-        if recursion_depth >= MAX_RECURSION_DEPTH:
-            self.logger.warning(f"Maximum recursion depth ({MAX_RECURSION_DEPTH}) reached")
-            return f"I've reached the maximum number of tool calls. Here's what I know so far based on the tools I've used."
+        if recursion_depth >= self.MAX_RECURSION_DEPTH:
+            self.logger.warning(f"Maximum recursion depth ({self.MAX_RECURSION_DEPTH}) reached")
+            return await self._generate_final_response(messages, system)
         
         self.logger.info(f"Calling Bedrock with model: {self.model_id} (recursion depth: {recursion_depth})")
         response = self.client.converse(
@@ -160,12 +160,9 @@ class BedrockClient:
             messages: Current message history
             recursion_depth: Current recursion depth
         """
-        # Maximum recursion depth to prevent infinite loops
-        MAX_RECURSION_DEPTH = 5
-        
-        if recursion_depth >= MAX_RECURSION_DEPTH:
-            self.logger.warning(f"Maximum tool recursion depth ({MAX_RECURSION_DEPTH}) reached")
-            return "I've reached the maximum number of tool calls. Here's what I know so far based on the tools I've used."
+        if recursion_depth >= self.MAX_RECURSION_DEPTH:
+            self.logger.warning(f"Maximum tool recursion depth ({self.MAX_RECURSION_DEPTH}) reached")
+            return await self._generate_final_response(messages, self._prepare_system_prompt())
             
         self.logger.info(f"Model requested tool use (recursion depth: {recursion_depth})")
         tool_response = []
@@ -195,22 +192,22 @@ class BedrockClient:
     
     async def _call_tool_with_direct_session(self, server_name, tool_name, arguments, timeout=30.0):
         """
-        新しいセッションを作成して直接ツールを呼び出す
+        Create a new session and call a tool directly
         
         Args:
-            server_name: サーバー名
-            tool_name: ツール名
-            arguments: ツール引数
-            timeout: タイムアウト時間（秒）
+            server_name: Server name
+            tool_name: Tool name
+            arguments: Tool arguments
+            timeout: Timeout in seconds
             
         Returns:
-            Any: ツール実行結果
+            Any: Tool execution result
         """
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
         import json
         
-        # サーバー設定を取得
+        # Get server configuration
         server_config = None
         try:
             with open("config/mcp_servers.json", 'r') as f:
@@ -226,7 +223,7 @@ class BedrockClient:
         if not server_config:
             raise ValueError(f"Server configuration not found for: {server_name}")
         
-        # MCPサーバーのパラメータを設定
+        # Set up MCP server parameters
         server_params = StdioServerParameters(
             command=server_config.get('command'),
             args=server_config.get('args', []),
@@ -235,12 +232,12 @@ class BedrockClient:
         
         self.logger.info(f"Creating new session for {server_name}")
         
-        # MCPクライアントを作成
+        # Create MCP client
         client = None
         session = None
         
         try:
-            # クライアントとセッションを作成
+            # Create client and session
             client = stdio_client(server_params)
             read, write = await client.__aenter__()
             
@@ -250,7 +247,7 @@ class BedrockClient:
             
             self.logger.info(f"Calling {tool_name} directly with new session")
             
-            # ツールを呼び出し
+            # Call the tool
             result = await asyncio.wait_for(
                 session.call_tool(tool_name, arguments=arguments),
                 timeout=timeout
@@ -258,7 +255,7 @@ class BedrockClient:
             
             return result
         finally:
-            # セッションとクライアントをクローズ
+            # Close session and client
             if session:
                 try:
                     await session.__aexit__(None, None, None)
@@ -277,7 +274,7 @@ class BedrockClient:
         self.logger.info(f"Executing tool: {tool_name}")
         
         try:
-            # ツール名からサーバー名とオリジナルツール名を取得
+            # Get server name and original tool name from the tool name
             normalized_name = self.tool_client._normalize_name(tool_name)
             if normalized_name not in self.tool_client._tools:
                 raise ValueError(f"Unknown tool: {normalized_name}")
@@ -289,7 +286,7 @@ class BedrockClient:
             self.logger.info(f"Using direct session for tool: {tool_name}")
             self.logger.info(f"Server name: {server_name}, Original tool name: {original_tool_name}")
             
-            # すべてのツールで直接セッションを使用
+            # Use direct session for all tools
             result = await self._call_tool_with_direct_session(
                 server_name=server_name,
                 tool_name=original_tool_name,
@@ -325,6 +322,40 @@ class BedrockClient:
                     'status': 'error'
                 }
             }
+    
+    async def _generate_final_response(self, messages, system):
+        """
+        Generate a final response based on collected information when tool execution limit is reached
+        
+        Args:
+            messages: Current message history
+            system: System prompt
+            
+        Returns:
+            str: Generated final response
+        """
+        # Add instruction to generate final response based on collected information
+        final_instruction = {
+            "role": "user",
+            "content": [{"text": "Please generate a final response based on the information collected so far. Do not make additional tool calls."}]
+        }
+        messages.append(final_instruction)
+        
+        # Generate final response without tool configuration
+        self.logger.info("Generating final response based on collected information")
+        response = self.client.converse(
+            modelId=self.model_id,
+            messages=messages,
+            system=system,
+            inferenceConfig={
+                "maxTokens": 5000,
+                "topP": 0.1,
+                "temperature": 0.3
+            }
+            # Intentionally omitting toolConfig
+        )
+        
+        return self._extract_text_response(response)
     
     async def _handle_max_tokens(self, response, messages, recursion_depth=0):
         """
