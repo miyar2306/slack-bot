@@ -20,6 +20,9 @@ def main():
     aws_region = os.environ.get("AWS_REGION", "us-west-2")
     mcp_config_file = os.environ.get("MCP_CONFIG_FILE", "config/mcp_servers.json")
     
+    # Bedrock設定
+    bedrock_max_recursion_depth = int(os.environ.get("BEDROCK_MAX_RECURSION_DEPTH", 10))
+    
     # Set up logging
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, level_name, logging.INFO)
@@ -31,6 +34,7 @@ def main():
     bedrock_client = BedrockClient(
         region_name=aws_region,
         config_file_path=mcp_config_file,
+        max_recursion_depth=bedrock_max_recursion_depth,
         logger=logger
     )
     slack_service = SlackService(

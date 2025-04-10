@@ -48,14 +48,13 @@ class ToolInfo(TypedDict):
 class BedrockClient:
     """Amazon Bedrockとの通信を処理するクライアント"""
     
-    MAX_RECURSION_DEPTH = 5
-    
-    def __init__(self, region_name, config_file_path="config/mcp_servers.json", logger=None):
+    def __init__(self, region_name, config_file_path="config/mcp_servers.json", max_recursion_depth=5, logger=None):
         self.logger = logger or setup_logger(__name__)
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
         self.model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         self.config_file_path = config_file_path
         self._tools = {}
+        self.MAX_RECURSION_DEPTH = max_recursion_depth
         
         # 非同期ループを初期化
         try:
