@@ -1,6 +1,7 @@
 import threading
 import re
 from src.infrastructure.logger import setup_logger
+from markdown2slack.app import Convert
 
 class SlackService:
     """Business logic for processing Slack events"""
@@ -20,6 +21,7 @@ class SlackService:
         self.event_retention_period = event_retention_period
         self.logger = logger or setup_logger(__name__)
         self.processed_events = set()
+        self.converter = Convert()
         self.logger.info("SlackService initialized")
     
     def handle_event(self, event_data):
@@ -89,8 +91,9 @@ class SlackService:
         
         self.logger.info("Generating response using Bedrock")
         response = self.bedrock_client.generate_response(conversation_context)
+        slack_response = self.converter.convert(response)
         
-        self.slack_client.send_message(channel, response, thread_ts=thread_ts)
+        self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
     
     def _handle_direct_message(self, channel, thread_ts, is_single_message):
         """Handle direct message events"""
@@ -103,7 +106,8 @@ class SlackService:
             conversation_context = self._build_conversation_context(thread_messages)
             response = self.bedrock_client.generate_response(conversation_context)
         
-        self.slack_client.send_message(channel, response, thread_ts=thread_ts)
+        slack_response = self.converter.convert(response)
+        self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
     
     def _build_conversation_context(self, messages):
         """
