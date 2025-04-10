@@ -77,8 +77,12 @@ class BedrockClient:
     
     @error_handler
     async def initialize_mcp_servers(self):
-        for server_config in self.mcp_config.get('mcp_servers', []):
-            await self._initialize_server(server_config)
+        for server_name, server_config in self.mcp_config.items():
+            if isinstance(server_config, dict) and 'command' in server_config:
+                # nameを追加
+                config_with_name = server_config.copy()
+                config_with_name['name'] = server_name
+                await self._initialize_server(config_with_name)
     
     @error_handler
     async def _initialize_server(self, server_config):
@@ -91,14 +95,12 @@ class BedrockClient:
             self.logger.error("Invalid server configuration")
             return
         
-        # サーバーセッションを作成してツールを登録
         server_params = StdioServerParameters(command=command, args=args, env=env)
         async with stdio_client(server_params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools_result = await session.list_tools()
                 
-                # ツールリストを取得
                 tools = []
                 if hasattr(tools_result, 'tools'):
                     tools = tools_result.tools
@@ -194,9 +196,12 @@ class BedrockClient:
         self.logger.info(f"Registered tool: {name}")
     
     def _get_server_config(self, server_name):
-        for srv in self.mcp_config.get('mcp_servers', []):
-            if srv.get('name') == server_name:
-                return srv
+        # 新しい形式で直接キーとして存在するか確認
+        if server_name in self.mcp_config and isinstance(self.mcp_config[server_name], dict):
+            config = self.mcp_config[server_name].copy()
+            config['name'] = server_name
+            return config
+                
         raise ValueError(f"Server configuration not found for: {server_name}")
     
     @error_handler

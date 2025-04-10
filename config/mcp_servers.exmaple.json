@@ -1,10 +1,7 @@
 {
-  "mcp_servers": [
-    {
-      "name": "sqlite",
-      "command": "uvx",
-      "args": ["mcp-server-sqlite", "--db-path", "~/test.db"],
-      "env": {}
-    }
-  ]
+  "sqlite": {
+    "command": "uvx",
+    "args": ["mcp-server-sqlite", "--db-path", "~/test.db"],
+    "env": {}
+  }
 }
