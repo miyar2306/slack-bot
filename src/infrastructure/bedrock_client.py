@@ -1,6 +1,9 @@
 import boto3
 import asyncio
-from .mcp_tool_client import MCPToolClient
+import json
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from typing import Dict, Any, List
 from .logger import setup_logger
 
 class BedrockClient:
@@ -9,24 +12,113 @@ class BedrockClient:
     # Define maximum recursion depth as class variable
     MAX_RECURSION_DEPTH = 5
     
-    def __init__(self, region_name, mcp_server_manager=None, logger=None):
-        """
-        Initialize BedrockClient
-        
-        Args:
-            region_name (str): AWS region name
-            mcp_server_manager: MCPServerManager instance
-            logger: Logger instance (optional)
-        """
+    def __init__(self, region_name, config_file_path="config/mcp_servers.json", logger=None):
+
         self.logger = logger or setup_logger(__name__)
         self.logger.info(f"Initializing BedrockClient with region: {region_name}")
         
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
         self.model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         
-        self.mcp_server_manager = mcp_server_manager
-        self.tool_client = mcp_server_manager.get_tool_manager() if mcp_server_manager else MCPToolClient(logger=self.logger)
+        self.config_file_path = config_file_path
+        self._tools = {}
+        self._load_mcp_config()
+        
+        try:
+            self.loop = asyncio.get_event_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+        self.loop.run_until_complete(self.initialize_mcp_servers())
         self.logger.info("BedrockClient initialized")
+        
+    def _load_mcp_config(self):
+        try:
+            self.logger.info(f"Loading MCP server configuration from {self.config_file_path}")
+            with open(self.config_file_path, 'r') as f:
+                self.mcp_config = json.load(f)
+            
+            server_count = len(self.mcp_config.get('mcp_servers', []))
+            self.logger.info(f"Found {server_count} MCP servers in configuration")
+        except FileNotFoundError:
+            self.logger.error(f"MCP server configuration file not found: {self.config_file_path}")
+            self.mcp_config = {"mcp_servers": []}
+        except json.JSONDecodeError:
+            self.logger.error(f"Invalid JSON in MCP server configuration file: {self.config_file_path}")
+            self.mcp_config = {"mcp_servers": []}
+        except Exception as e:
+            self.logger.error(f"Error loading MCP configuration: {e}", exc_info=True)
+            self.mcp_config = {"mcp_servers": []}
+    
+    async def initialize_mcp_servers(self):
+        try:
+            self.logger.info("Initializing MCP servers")
+            for server_config in self.mcp_config.get('mcp_servers', []):
+                await self._initialize_server(server_config)
+            self.logger.info("MCP servers initialization completed")
+        except Exception as e:
+            self.logger.error(f"Error initializing MCP servers: {e}", exc_info=True)
+    
+    async def _initialize_server(self, server_config):
+        name = server_config.get('name')
+        command = server_config.get('command')
+        args = server_config.get('args', [])
+        env = server_config.get('env')
+        
+        if not name or not command:
+            self.logger.error(f"Invalid server configuration: {server_config}")
+            return
+        
+        try:
+            self.logger.info(f"Initializing MCP server: {name}")
+            
+            server_params = StdioServerParameters(
+                command=command,
+                args=args,
+                env=env
+            )
+            
+            client = stdio_client(server_params)
+            read, write = await client.__aenter__()
+            
+            session = ClientSession(read, write)
+            await session.__aenter__()
+            await session.initialize()
+            
+
+            self.logger.info(f"Getting available tools from server: {name}")
+            tools_result = await session.list_tools()
+            
+            tools = []
+            if hasattr(tools_result, 'tools'):
+                tools = tools_result.tools
+            elif isinstance(tools_result, dict) and 'tools' in tools_result:
+                tools = tools_result['tools']
+            elif isinstance(tools_result, list):
+                tools = tools_result
+            
+            # ツールを登録
+            self.logger.info(f"Found {len(tools)} tools in server: {name}")
+            for tool in tools:
+                try:
+                    prefixed_name = f"{name}_{tool.name}"
+                    self.register_tool(
+                        name=prefixed_name,
+                        description=f"[{name}] {tool.description}",
+                        input_schema=tool.inputSchema,
+                        server_name=name,
+                        original_tool_name=tool.name
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error registering tool '{name}_{getattr(tool, 'name', 'unknown')}': {e}", exc_info=True)
+
+            await session.__aexit__(None, None, None)
+            await client.__aexit__(None, None, None)
+            
+            self.logger.info(f"Successfully initialized MCP server: {name}")
+        except Exception as e:
+            self.logger.error(f"Error initializing MCP server '{name}': {e}", exc_info=True)
     
     def generate_response(self, message_or_conversation):
         """
@@ -47,15 +139,6 @@ class BedrockClient:
         return loop.run_until_complete(self._generate_response_async(message_or_conversation))
     
     async def _generate_response_async(self, message_or_conversation):
-        """
-        Generate a response asynchronously
-        
-        Args:
-            message_or_conversation: Single message (string) or conversation history (list of dicts)
-            
-        Returns:
-            str: Generated response
-        """
         messages = self._prepare_messages(message_or_conversation)
         system = self._prepare_system_prompt()
         tool_config = self._prepare_tool_config()
@@ -67,7 +150,6 @@ class BedrockClient:
             return "Sorry, an error occurred while generating the response."
     
     def _prepare_messages(self, message_or_conversation):
-        """Prepare messages for Bedrock API"""
         if isinstance(message_or_conversation, str):
             self.logger.debug("Processing single message input")
             return [{
@@ -82,35 +164,52 @@ class BedrockClient:
             raise ValueError("Invalid input format")
     
     def _prepare_system_prompt(self):
-        """Prepare system prompt with tool descriptions"""
         system_text = "You are a helpful AI assistant. Speak in Japanese"
         
-        if hasattr(self, 'tool_client') and self.tool_client and self.tool_client._tools:
-            self.logger.debug(f"Adding {len(self.tool_client._tools)} tools to system prompt")
+        if self._tools:
+            self.logger.debug(f"Adding {len(self._tools)} tools to system prompt")
             system_text += " You have access to the following tools:\n\n"
-            for name, tool_info in self.tool_client._tools.items():
+            for name, tool_info in self._tools.items():
                 system_text += f"- {name}: {tool_info['description']}\n"
         
         return [{"text": system_text}]
     
     def _prepare_tool_config(self):
-        """Prepare tool configuration for Bedrock API"""
-        if hasattr(self, 'tool_client') and self.tool_client:
-            tool_config = self.tool_client.get_tools()
-            self.logger.debug(f"Tool config prepared with {len(tool_config.get('tools', []))} tools")
-            return tool_config
-        return {}
+        tool_specs = []
+        for normalized_name, tool in self._tools.items():
+            safe_name = ''.join(c if c.isalnum() or c in ['_', '-'] else '_' for c in normalized_name)
+            
+            if len(safe_name) > 64:
+                self.logger.warning(f"Tool name '{safe_name}' exceeds 64 characters, truncating")
+                parts = safe_name.split('_', 1)
+                if len(parts) > 1:
+                    server_prefix = parts[0]
+                    tool_part = parts[1]
+                    max_server_len = 20
+                    if len(server_prefix) > max_server_len:
+                        server_prefix = server_prefix[:max_server_len]
+                    remaining_space = 64 - len(server_prefix) - 1  # 1は'_'の分
+                    tool_part = tool_part[-remaining_space:] if len(tool_part) > remaining_space else tool_part
+                    safe_name = f"{server_prefix}_{tool_part}"
+                else:
+                    safe_name = safe_name[:64]
+            
+            tool_specs.append({
+                "toolSpec": {
+                    "name": safe_name,
+                    "description": tool['description'],
+                    "inputSchema": {
+                        "json": tool['input_schema']
+                    }
+                }
+            })
+        
+        tool_config = {"tools": tool_specs}
+        self.logger.debug(f"Tool config prepared with {len(tool_config.get('tools', []))} tools")
+        return tool_config
     
     async def _make_bedrock_request(self, messages, system, tool_config, recursion_depth=0):
-        """
-        Make request to Bedrock API and handle response
-        
-        Args:
-            messages: Messages to send to Bedrock
-            system: System prompt
-            tool_config: Tool configuration
-            recursion_depth: Current recursion depth (for limiting tool call recursion)
-        """
+
         if recursion_depth >= self.MAX_RECURSION_DEPTH:
             self.logger.warning(f"Maximum recursion depth ({self.MAX_RECURSION_DEPTH}) reached")
             return await self._generate_final_response(messages, system)
@@ -142,7 +241,6 @@ class BedrockClient:
             return f"Unknown stop reason: {stop_reason}"
     
     def _extract_text_response(self, response):
-        """Extract text from Bedrock response"""
         output_message = response['output']['message']
         response_text = ""
         for content in output_message['content']:
@@ -152,14 +250,6 @@ class BedrockClient:
         return response_text.strip()
     
     async def _handle_tool_use(self, response, messages, recursion_depth=0):
-        """
-        Handle tool use in Bedrock response
-        
-        Args:
-            response: Bedrock response
-            messages: Current message history
-            recursion_depth: Current recursion depth
-        """
         if recursion_depth >= self.MAX_RECURSION_DEPTH:
             self.logger.warning(f"Maximum tool recursion depth ({self.MAX_RECURSION_DEPTH}) reached")
             return await self._generate_final_response(messages, self._prepare_system_prompt())
@@ -191,18 +281,6 @@ class BedrockClient:
         return await self._make_bedrock_request(messages, system, tool_config, recursion_depth + 1)
     
     async def _call_tool_with_direct_session(self, server_name, tool_name, arguments, timeout=30.0):
-        """
-        Create a new session and call a tool directly
-        
-        Args:
-            server_name: Server name
-            tool_name: Tool name
-            arguments: Tool arguments
-            timeout: Timeout in seconds
-            
-        Returns:
-            Any: Tool execution result
-        """
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
         import json
@@ -268,6 +346,35 @@ class BedrockClient:
                 except Exception as e:
                     self.logger.error(f"Error closing client: {e}")
     
+    def _normalize_name(self, name: str) -> str:
+        """Convert hyphenated and dotted names to underscore format"""
+        return name.replace('-', '_').replace('.', '_')
+        
+    def register_tool(self, name: str, description: str, input_schema: Dict, 
+                      server_name: str, original_tool_name: str, 
+                      timeout: float = 30.0):
+        """
+        Register a new tool
+        
+        Args:
+            name: Tool name
+            description: Tool description
+            input_schema: Tool input schema
+            server_name: Name of the server this tool belongs to
+            original_tool_name: Original name of the tool on the server
+            timeout: Timeout for tool execution in seconds
+        """
+        normalized_name = self._normalize_name(name)
+        self._tools[normalized_name] = {
+            'description': description,
+            'input_schema': input_schema,
+            'original_name': name,
+            'server_name': server_name,
+            'original_tool_name': original_tool_name,
+            'timeout': timeout
+        }
+        self.logger.info(f"Registered tool: {name}")
+
     async def _execute_tool(self, tool_request):
         """Execute a tool and format the result"""
         tool_name = tool_request['name']
@@ -275,11 +382,11 @@ class BedrockClient:
         
         try:
             # Get server name and original tool name from the tool name
-            normalized_name = self.tool_client._normalize_name(tool_name)
-            if normalized_name not in self.tool_client._tools:
+            normalized_name = self._normalize_name(tool_name)
+            if normalized_name not in self._tools:
                 raise ValueError(f"Unknown tool: {normalized_name}")
                 
-            tool_info = self.tool_client._tools[normalized_name]
+            tool_info = self._tools[normalized_name]
             server_name = tool_info.get('server_name')
             original_tool_name = tool_info.get('original_tool_name', tool_name)
             
