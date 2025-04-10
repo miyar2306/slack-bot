@@ -91,7 +91,7 @@ class SlackService:
         
         self.logger.info("Generating response using Bedrock")
         response = self.bedrock_client.generate_response(conversation_context)
-        slack_response = self.converter.convert(response)
+        slack_response = self.converter.markdown_to_slack_format(response)
         
         self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
     
@@ -101,12 +101,13 @@ class SlackService:
             self.logger.debug("Processing single DM message")
             message_text = self._clean_mention(thread_ts)
             response = self.bedrock_client.generate_response(message_text)
+            slack_response = self.converter.markdown_to_slack_format(response)
         else:
             thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
             conversation_context = self._build_conversation_context(thread_messages)
             response = self.bedrock_client.generate_response(conversation_context)
+            slack_response = self.converter.markdown_to_slack_format(response)
         
-        slack_response = self.converter.convert(response)
         self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
     
     def _build_conversation_context(self, messages):
