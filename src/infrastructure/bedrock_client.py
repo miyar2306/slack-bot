@@ -223,7 +223,7 @@ class BedrockClient:
             modelId=self.model_id,
             messages=messages,
             system=system,
-            inferenceConfig={"maxTokens": 5000, "topP": 0.1, "temperature": 0.3},
+            inferenceConfig={"maxTokens": 5000,"temperature": 0},
             toolConfig=tool_config
         )
         
