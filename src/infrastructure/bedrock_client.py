@@ -133,6 +133,16 @@ class BedrockClient:
         messages, system, tool_config = self._prepare_request_data(message_or_conversation)
         return await self._make_bedrock_request(messages, system, tool_config)
     
+    def _load_system_prompt(self):
+        """マークダウンファイルからシステムプロンプトを読み込む"""
+        system_prompt_file = "system_prompt.md"  # 固定ファイル名
+        try:
+            with open(system_prompt_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except Exception as e:
+            self.logger.warning(f"システムプロンプトファイルの読み込みに失敗しました: {e}")
+            return "You are a helpful AI assistant. Speak in Japanese"
+
     def _prepare_request_data(self, message_or_conversation):
         # メッセージの準備
         if isinstance(message_or_conversation, str):
@@ -143,9 +153,9 @@ class BedrockClient:
             raise ValueError("Invalid input format")
         
         # システムプロンプトの準備
-        system_text = "You are a helpful AI assistant. Speak in Japanese"
+        system_text = self._load_system_prompt()
         if self._tools:
-            system_text += " You have access to the following tools:\n\n"
+            system_text += "\n\nYou have access to the following tools:\n\n"
             system_text += "\n".join(f"- {name}: {tool['description']}" for name, tool in self._tools.items())
         
         system = [{"text": system_text}]

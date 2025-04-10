@@ -24,3 +24,7 @@ venv/
 .DS_Store
 *.swp
 config/mcp_servers.json
+
+
+# システムプロンプト
+system_prompt.md
