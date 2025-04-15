@@ -1,21 +1,36 @@
 from bottle import Bottle, request, response
 import json
+import time
+import os
+from slack_sdk.signature import SignatureVerifier
 from src.infrastructure.logger import setup_logger
 
 class SlackAPI:
     """Provides Slack API endpoints using Bottle framework"""
     
-    def __init__(self, slack_service, logger=None):
+    def __init__(self, slack_service, signing_secret=None, logger=None):
         """
         Initialize SlackAPI
         
         Args:
             slack_service: SlackService instance
+            signing_secret: Slack Signing Secret for request verification
             logger: Logger instance (optional)
         """
         self.slack_service = slack_service
         self.logger = logger or setup_logger(__name__)
         self.app = Bottle()
+        self.signature_verifier = None
+        
+        if signing_secret:
+            self.signature_verifier = SignatureVerifier(signing_secret)
+            self.logger.info("Slack request signature verification enabled")
+        else:
+            self.logger.warning("Slack request signature verification DISABLED - not secure for production!")
+            # 本番環境では署名検証を必須にする
+            if os.environ.get('ENVIRONMENT', 'development').lower() == 'production':
+                raise ValueError("Slack signing secret is required in production environment")
+                
         self._setup_routes()
         self.logger.info("SlackAPI initialized")
     
@@ -47,7 +62,48 @@ class SlackAPI:
     def _slack_events(self):
         """Process Slack events"""
         try:
-            data = request.json
+            # リクエスト検証を実装
+            if self.signature_verifier:
+                # リクエストボディを一度だけ読み込む
+                body_raw = request.body.read()
+                body = body_raw.decode('utf-8')
+                
+                # リクエストヘッダーからタイムスタンプと署名を取得
+                timestamp = request.headers.get("X-Slack-Request-Timestamp") or request.headers.get("x-slack-request-timestamp")
+                signature = request.headers.get("X-Slack-Signature") or request.headers.get("x-slack-signature")
+                
+                if not timestamp or not signature:
+                    self.logger.warning(f"Missing Slack verification headers: timestamp={bool(timestamp)}, signature={bool(signature)}")
+                    response.status = 403
+                    return {'status': 'error', 'message': 'Missing verification headers'}
+                
+                # タイムスタンプの検証（5分以上経過したリクエストは拒否）
+                current_time = int(time.time())
+                if abs(current_time - int(timestamp)) > 60 * 5:
+                    self.logger.warning(f"Expired Slack request: timestamp={timestamp}, current={current_time}")
+                    response.status = 403
+                    return {'status': 'error', 'message': 'Request expired'}
+                
+                # 署名を検証
+                if not self.signature_verifier.is_valid(
+                    body=body,
+                    timestamp=timestamp,
+                    signature=signature
+                ):
+                    self.logger.warning(
+                        f"Invalid Slack request signature detected. "
+                        f"Remote IP: {request.remote_addr}, "
+                        f"Timestamp: {timestamp}"
+                    )
+                    response.status = 403
+                    return {'status': 'error', 'message': 'Invalid request signature'}
+                
+                # ボディからJSONをパース
+                data = json.loads(body)
+            else:
+                # 署名検証なしの場合は直接request.jsonを使用
+                data = request.json
+            
             self.logger.info(f"Received Slack event type: {data.get('type')}")
             self.logger.debug(f"Event details: {json.dumps(data, indent=2)}")
             

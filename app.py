@@ -14,6 +14,7 @@ def main():
     
     # Load configuration from environment variables
     slack_bot_token = os.environ.get("SLACK_BOT_TOKEN", "xoxb-your-token")
+    slack_signing_secret = os.environ.get("SLACK_SIGNING_SECRET", "")
     port = int(os.environ.get('PORT', 8080))
     debug = os.environ.get('DEBUG', 'True').lower() == 'true'
     event_retention_period = 3600  # 1 hour
@@ -43,7 +44,7 @@ def main():
         event_retention_period=event_retention_period,
         logger=logger
     )
-    slack_api = SlackAPI(slack_service, logger)
+    slack_api = SlackAPI(slack_service, signing_secret=slack_signing_secret, logger=logger)
     
     # Get and run the application
     app = slack_api.get_app()
