@@ -16,7 +16,7 @@ class SlackClient:
         self.client = WebClient(token=token)
         self.logger = logger or setup_logger(__name__)
     
-    def send_message(self, channel, text, thread_ts=None):
+    def send_message(self, channel, text, thread_ts=None, blocks=None):
         """
         Send a message to a specified channel
         
@@ -24,18 +24,26 @@ class SlackClient:
             channel (str): Channel ID to send message to
             text (str): Message text to send
             thread_ts (str, optional): Thread timestamp (for replies)
+            blocks (list, optional): Block Kit blocks
             
         Returns:
-            bool: True if successful, False otherwise
+            dict or False: Response data if successful, False otherwise
         """
         try:
             self.logger.info(f"Sending message to channel {channel}")
-            self.client.chat_postMessage(
-                channel=channel,
-                text=text,
-                thread_ts=thread_ts
-            )
-            return True
+            params = {
+                "channel": channel,
+                "text": text,
+            }
+            
+            if thread_ts:
+                params["thread_ts"] = thread_ts
+                
+            if blocks:
+                params["blocks"] = blocks
+                
+            response = self.client.chat_postMessage(**params)
+            return response
         except SlackApiError as e:
             self.logger.error(f"Error sending message: {e}")
             return False
@@ -64,3 +72,35 @@ class SlackClient:
         except SlackApiError as e:
             self.logger.error(f"Error getting thread messages: {e}")
             return []
+    
+    def update_message(self, channel, ts, text=None, blocks=None):
+        """
+        Update an existing message
+        
+        Args:
+            channel (str): Channel ID
+            ts (str): Timestamp of the message to update
+            text (str, optional): New message text
+            blocks (list, optional): New Block Kit blocks
+            
+        Returns:
+            dict or False: Response data if successful, False otherwise
+        """
+        try:
+            self.logger.info(f"Updating message in channel {channel}")
+            params = {
+                "channel": channel,
+                "ts": ts,
+            }
+            
+            if text:
+                params["text"] = text
+                
+            if blocks:
+                params["blocks"] = blocks
+                
+            response = self.client.chat_update(**params)
+            return response
+        except SlackApiError as e:
+            self.logger.error(f"Error updating message: {e}")
+            return False

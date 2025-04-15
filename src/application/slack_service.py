@@ -86,6 +86,29 @@ class SlackService:
     
     def _handle_mention(self, channel, thread_ts):
         """Handle app_mention events"""
+        # シンプルなローディングブロックを作成
+        loading_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":hourglass_flowing_sand: *処理中です...*"
+                }
+            }
+        ]
+        
+        # 処理開始時にローディングメッセージを送信
+        result = self.slack_client.send_message(
+            channel=channel,
+            text="処理中です...",  # フォールバックテキスト
+            thread_ts=thread_ts,
+            blocks=loading_blocks
+        )
+        
+        # タイムスタンプを取得
+        temp_ts = result.get("ts") if result else None
+        
+        # スレッドメッセージを取得して会話コンテキストを構築
         thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
         conversation_context = self._build_conversation_context(thread_messages)
         
@@ -93,10 +116,46 @@ class SlackService:
         response = self.bedrock_client.generate_response(conversation_context)
         slack_response = self.converter.markdown_to_slack_format(response)
         
-        self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
+        # 処理完了後にメッセージを更新
+        if temp_ts:
+            self.slack_client.update_message(
+                channel=channel,
+                ts=temp_ts,
+                text=slack_response  # Block Kitを使わない場合のフォールバック
+            )
+        else:
+            # 更新できない場合は新しいメッセージを送信
+            self.slack_client.send_message(
+                channel=channel,
+                text=slack_response,
+                thread_ts=thread_ts
+            )
     
     def _handle_direct_message(self, channel, thread_ts, is_single_message):
         """Handle direct message events"""
+        # シンプルなローディングブロックを作成
+        loading_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":hourglass_flowing_sand: *処理中です...*"
+                }
+            }
+        ]
+        
+        # 処理開始時にローディングメッセージを送信
+        result = self.slack_client.send_message(
+            channel=channel,
+            text="処理中です...",  # フォールバックテキスト
+            thread_ts=thread_ts,
+            blocks=loading_blocks
+        )
+        
+        # タイムスタンプを取得
+        temp_ts = result.get("ts") if result else None
+        
+        # 処理実行
         if is_single_message:
             self.logger.debug("Processing single DM message")
             message_text = self._clean_mention(thread_ts)
@@ -108,7 +167,20 @@ class SlackService:
             response = self.bedrock_client.generate_response(conversation_context)
             slack_response = self.converter.markdown_to_slack_format(response)
         
-        self.slack_client.send_message(channel, slack_response, thread_ts=thread_ts)
+        # 処理完了後にメッセージを更新
+        if temp_ts:
+            self.slack_client.update_message(
+                channel=channel,
+                ts=temp_ts,
+                text=slack_response  # Block Kitを使わない場合のフォールバック
+            )
+        else:
+            # 更新できない場合は新しいメッセージを送信
+            self.slack_client.send_message(
+                channel=channel,
+                text=slack_response,
+                thread_ts=thread_ts
+            )
     
     def _build_conversation_context(self, messages):
         """
