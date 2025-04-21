@@ -27,7 +27,7 @@ class SlackClient:
             blocks (list, optional): Block Kit blocks
             
         Returns:
-            dict or False: Response data if successful, False otherwise
+            dict: Response data with success status and error information if applicable
         """
         try:
             self.logger.info(f"Sending message to channel {channel}")
@@ -43,10 +43,11 @@ class SlackClient:
                 params["blocks"] = blocks
                 
             response = self.client.chat_postMessage(**params)
-            return response
+            return {"success": True, "response": response, "ts": response.get("ts")}
         except SlackApiError as e:
+            error_code = getattr(e.response, "data", {}).get("error", "unknown_error")
             self.logger.error(f"Error sending message: {e}")
-            return False
+            return {"success": False, "error": str(e), "error_code": error_code}
     
     def get_thread_messages(self, channel, thread_ts):
         """
@@ -84,7 +85,7 @@ class SlackClient:
             blocks (list, optional): New Block Kit blocks
             
         Returns:
-            dict or False: Response data if successful, False otherwise
+            dict: Response data with success status and error information if applicable
         """
         try:
             self.logger.info(f"Updating message in channel {channel}")
@@ -100,7 +101,114 @@ class SlackClient:
                 params["blocks"] = blocks
                 
             response = self.client.chat_update(**params)
-            return response
+            return {"success": True, "response": response}
         except SlackApiError as e:
+            error_code = getattr(e.response, "data", {}).get("error", "unknown_error")
             self.logger.error(f"Error updating message: {e}")
-            return False
+            return {"success": False, "error": str(e), "error_code": error_code}
+    
+    def _split_message(self, text, max_length=3900):
+        """
+        Split a message into parts that fit within Slack's message length limit
+        
+        Args:
+            text (str): Message text to split
+            max_length (int): Maximum length of each part
+            
+        Returns:
+            list: List of message parts
+        """
+        parts = []
+        while text:
+            if len(text) <= max_length:
+                parts.append(text)
+                break
+            
+            # 最大長で区切り、できれば改行で分割
+            split_point = text.rfind('\n', 0, max_length)
+            if split_point == -1:  # 改行がない場合は単純に最大長で分割
+                split_point = max_length
+            
+            parts.append(text[:split_point])
+            text = text[split_point:].lstrip()
+        
+        return parts
+    
+    def send_long_message(self, channel, text, thread_ts=None, blocks=None):
+        """
+        Send a message that might exceed Slack's message length limit
+        
+        Args:
+            channel (str): Channel ID to send message to
+            text (str): Message text to send
+            thread_ts (str, optional): Thread timestamp (for replies)
+            blocks (list, optional): Block Kit blocks
+            
+        Returns:
+            dict: Response data with success status and timestamps of sent messages
+        """
+        # テキストが短い場合は通常の送信を試みる
+        if len(text) <= 3900:
+            return self.send_message(channel, text, thread_ts, blocks)
+        
+        # 長いメッセージを分割
+        message_parts = self._split_message(text)
+        sent_messages = []
+        
+        # 分割したメッセージを順番に送信
+        for i, part in enumerate(message_parts):
+            prefix = f"[{i+1}/{len(message_parts)}] " if len(message_parts) > 1 else ""
+            result = self.send_message(
+                channel=channel,
+                text=prefix + part,
+                thread_ts=thread_ts
+            )
+            
+            if not result.get("success"):
+                return {
+                    "success": False, 
+                    "error": f"Failed to send part {i+1}/{len(message_parts)}: {result.get('error')}",
+                    "error_code": result.get("error_code"),
+                    "sent_messages": sent_messages
+                }
+            
+            sent_messages.append(result.get("ts"))
+        
+        return {
+            "success": True,
+            "message": f"Sent {len(message_parts)} message parts",
+            "sent_messages": sent_messages
+        }
+    
+    def update_long_message(self, channel, ts, text, blocks=None):
+        """
+        Update a message that might exceed Slack's message length limit
+        
+        Args:
+            channel (str): Channel ID
+            ts (str): Timestamp of the message to update
+            text (str): New message text
+            blocks (list, optional): New Block Kit blocks
+            
+        Returns:
+            dict: Response data with success status
+        """
+        # テキストが短い場合は通常の更新を試みる
+        if len(text) <= 3900:
+            return self.update_message(channel, ts, text, blocks)
+        
+        # 長いメッセージの場合、元のメッセージを更新して分割メッセージを送信
+        update_result = self.update_message(
+            channel=channel,
+            ts=ts,
+            text="メッセージが長いため、複数のメッセージに分割します。"
+        )
+        
+        if not update_result.get("success"):
+            return update_result
+        
+        # スレッド情報を取得
+        thread_ts = ts
+        
+        # 長いメッセージを送信
+        return self.send_long_message(channel, text, thread_ts)
