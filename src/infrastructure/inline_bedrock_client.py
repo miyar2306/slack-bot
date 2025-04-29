@@ -2,7 +2,7 @@ import boto3
 import asyncio
 import json
 import functools
-from typing import Dict, Any, List, Union, Optional
+from typing import Dict, Any, List, Union, Optional, Set
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -98,21 +98,66 @@ class InlineBedrockClient:
         server_params = StdioServerParameters(command=command, args=args, env=env)
         try:
             mcp_client = await MCPStdio.create(server_params=server_params)
-            self.mcp_clients[server_name] = mcp_client
-            self.logger.info(f"Initialized MCP client for {server_name}")
+            
+            # ツールのパラメータ数をチェックし、制限を超えるツールを無効化
+            valid_tools = await self._filter_valid_tools(mcp_client, server_name)
+            if valid_tools:
+                self.mcp_clients[server_name] = mcp_client
+                self.logger.info(f"Initialized MCP client for {server_name} with {len(valid_tools)} valid tools")
+            else:
+                # 有効なツールがない場合はクライアントをクリーンアップ
+                await mcp_client.cleanup()
+                self.logger.warning(f"No valid tools found for {server_name}, client not initialized")
         except Exception as e:
             self.logger.error(f"Error initializing MCP client for {server_name}: {e}")
+    
+    async def _filter_valid_tools(self, mcp_client, server_name):
+        """Bedrock Agentsの制限（5パラメータ以下）に適合するツールをフィルタリング"""
+        MAX_PARAMS = 5
+        valid_tools = set()
+        invalid_tools = set()
+        
+        try:
+            # サーバーからツール情報を取得
+            tools_info = await mcp_client.session.list_tools()
+            
+            for tool_name, tool_info in tools_info.items():
+                # ツールのスキーマからパラメータ数をカウント
+                schema = tool_info.get("schema", {})
+                properties = schema.get("properties", {})
+                param_count = len(properties)
+                
+                if param_count <= MAX_PARAMS:
+                    valid_tools.add(tool_name)
+                else:
+                    invalid_tools.add(tool_name)
+                    self.logger.warning(f"Tool {tool_name} has {param_count} parameters, which exceeds the limit of {MAX_PARAMS}. This tool will be disabled.")
+            
+            if invalid_tools:
+                self.logger.info(f"Disabled {len(invalid_tools)} tools for {server_name}: {', '.join(invalid_tools)}")
+            
+            # 無効なツールを除外するフィルターを設定
+            if invalid_tools:
+                await mcp_client.session.set_tool_filter(lambda name, _: name not in invalid_tools)
+            
+            return valid_tools
+        except Exception as e:
+            self.logger.error(f"Error filtering tools for {server_name}: {e}")
+            return set()
     
     def _create_action_groups(self):
         """ActionGroupの作成"""
         for server_name, mcp_client in self.mcp_clients.items():
-            action_group = ActionGroup(
-                name=f"{server_name}ActionGroup",
-                description=f"Tools provided by {server_name} MCP server",
-                mcp_clients=[mcp_client]
-            )
-            self.action_groups.append(action_group)
-            self.logger.info(f"Created action group for {server_name}")
+            try:
+                action_group = ActionGroup(
+                    name=f"{server_name}ActionGroup",
+                    description=f"Tools provided by {server_name} MCP server",
+                    mcp_clients=[mcp_client]
+                )
+                self.action_groups.append(action_group)
+                self.logger.info(f"Created action group for {server_name}")
+            except Exception as e:
+                self.logger.error(f"Error creating action group for {server_name}: {e}")
     
     @ensure_async_loop
     async def generate_response(self, message_or_conversation):
@@ -166,9 +211,12 @@ class InlineBedrockClient:
     @ensure_async_loop
     async def cleanup_mcp_clients(self):
         """MCPクライアントのクリーンアップ"""
-        for server_name, mcp_client in self.mcp_clients.items():
+        for server_name, mcp_client in list(self.mcp_clients.items()):
             try:
                 await mcp_client.cleanup()
                 self.logger.info(f"Cleaned up MCP client for {server_name}")
             except Exception as e:
                 self.logger.error(f"Error cleaning up MCP client for {server_name}: {e}")
+            finally:
+                # クリーンアップ後は辞書から削除
+                self.mcp_clients.pop(server_name, None)
