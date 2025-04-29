@@ -73,20 +73,16 @@ class InlineBedrockClient:
             self.logger.warning(f"システムプロンプトファイルの読み込みに失敗しました: {e}")
             return "You are a helpful AI assistant. Speak in Japanese"
     
-    @ensure_async_loop
     async def initialize_inline_agent(self):
         """InlineAgentの初期化"""
         # MCPクライアントとActionGroupの初期化
         for server_name, server_config in self.mcp_config.items():
             if isinstance(server_config, dict) and 'command' in server_config:
-                await self._initialize_mcp_client(server_name, server_config)
-        
-        # ActionGroupの作成
-        self._create_action_groups()
+                await self._initialize_mcp_client_and_create_action_group(server_name, server_config)
     
     @error_handler
-    async def _initialize_mcp_client(self, server_name, server_config):
-        """MCPクライアントの初期化"""
+    async def _initialize_mcp_client_and_create_action_group(self, server_name, server_config):
+        """MCPクライアントの初期化とActionGroupの作成を一括で行う"""
         command = server_config.get('command')
         args = server_config.get('args', [])
         env = server_config.get('env')
@@ -95,59 +91,18 @@ class InlineBedrockClient:
             self.logger.error(f"Invalid server configuration for {server_name}")
             return
         
+        # MCPサーバーのパラメータを設定
         server_params = StdioServerParameters(command=command, args=args, env=env)
-        try:
-            mcp_client = await MCPStdio.create(server_params=server_params)
-            
-            # ツールのパラメータ数をチェックし、制限を超えるツールを無効化
-            valid_tools = await self._filter_valid_tools(mcp_client, server_name)
-            if valid_tools:
-                self.mcp_clients[server_name] = mcp_client
-                self.logger.info(f"Initialized MCP client for {server_name} with {len(valid_tools)} valid tools")
-            else:
-                # 有効なツールがない場合はクライアントをクリーンアップ
-                await mcp_client.cleanup()
-                self.logger.warning(f"No valid tools found for {server_name}, client not initialized")
-        except Exception as e:
-            self.logger.error(f"Error initializing MCP client for {server_name}: {e}")
-    
-    async def _filter_valid_tools(self, mcp_client, server_name):
-        """Bedrock Agentsの制限（5パラメータ以下）に適合するツールをフィルタリング"""
-        MAX_PARAMS = 5
-        valid_tools = set()
-        invalid_tools = set()
         
         try:
-            # サーバーからツール情報を取得
-            tools_info = await mcp_client.session.list_tools()
+            # MCPクライアントを作成
+            mcp_client = await MCPStdio.create(server_params=server_params)
             
-            for tool_name, tool_info in tools_info.items():
-                # ツールのスキーマからパラメータ数をカウント
-                schema = tool_info.get("schema", {})
-                properties = schema.get("properties", {})
-                param_count = len(properties)
-                
-                if param_count <= MAX_PARAMS:
-                    valid_tools.add(tool_name)
-                else:
-                    invalid_tools.add(tool_name)
-                    self.logger.warning(f"Tool {tool_name} has {param_count} parameters, which exceeds the limit of {MAX_PARAMS}. This tool will be disabled.")
             
-            if invalid_tools:
-                self.logger.info(f"Disabled {len(invalid_tools)} tools for {server_name}: {', '.join(invalid_tools)}")
+            # クライアントを保存
+            self.mcp_clients[server_name] = mcp_client
             
-            # 無効なツールを除外するフィルターを設定
-            if invalid_tools:
-                await mcp_client.session.set_tool_filter(lambda name, _: name not in invalid_tools)
-            
-            return valid_tools
-        except Exception as e:
-            self.logger.error(f"Error filtering tools for {server_name}: {e}")
-            return set()
-    
-    def _create_action_groups(self):
-        """ActionGroupの作成"""
-        for server_name, mcp_client in self.mcp_clients.items():
+            # ActionGroupを作成
             try:
                 action_group = ActionGroup(
                     name=f"{server_name}ActionGroup",
@@ -158,6 +113,12 @@ class InlineBedrockClient:
                 self.logger.info(f"Created action group for {server_name}")
             except Exception as e:
                 self.logger.error(f"Error creating action group for {server_name}: {e}")
+                # ActionGroup作成に失敗した場合はクライアントをクリーンアップ
+                await mcp_client.cleanup()
+                self.mcp_clients.pop(server_name, None)
+        except Exception as e:
+            self.logger.error(f"Error initializing MCP client for {server_name}: {e}")
+    
     
     @ensure_async_loop
     async def generate_response(self, message_or_conversation):
@@ -176,14 +137,18 @@ class InlineBedrockClient:
         
         # InlineAgentの作成と実行
         agent = InlineAgent(
+            # モデルを指定
             foundation_model=self.model_id,
+            # システムプロンプトを指定
             instruction=system_text,
+            # エージェント名とプロファイルを指定
             agent_name="slack_bot_agent",
             profile="default",
-            action_groups=self.action_groups,
-            region=self.client.meta.region_name
+            # ActionGroupを指定
+            action_groups=self.action_groups
         )
         
+        # エージェントを実行
         response = await agent.invoke(input_text=input_text)
         return response
     
