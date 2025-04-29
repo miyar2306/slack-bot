@@ -27,6 +27,16 @@ source .venv/bin/activate  # macOS/Linux
 uv pip install -r requirements.txt
 ```
 
+4. InlineAgentのセットアップ
+```bash
+# Amazon Bedrock Agent Samplesリポジトリをクローン
+mkdir -p libs
+git clone https://github.com/awslabs/amazon-bedrock-agent-samples.git libs/bedrock_samples
+
+# InlineAgentを開発モードでインストール
+uv pip install -e ./libs/bedrock_samples/src/InlineAgent
+```
+
 ### 環境変数の設定
 
 ```bash

@@ -25,6 +25,9 @@ venv/
 *.swp
 config/mcp_servers.json
 
+# 外部ライブラリ
+/libs/
+
 
 # システムプロンプト
 system_prompt.md
