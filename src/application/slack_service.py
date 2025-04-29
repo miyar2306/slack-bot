@@ -12,7 +12,7 @@ class SlackService:
         
         Args:
             slack_client: SlackClient instance
-            bedrock_client: BedrockClient instance
+            bedrock_client: InlineBedrockClient instance
             event_retention_period (int): How long to retain event IDs (seconds)
             logger: Logger instance (optional)
         """
@@ -22,7 +22,7 @@ class SlackService:
         self.logger = logger or setup_logger(__name__)
         self.processed_events = set()
         self.converter = Convert()
-        self.logger.info("SlackService initialized")
+        self.logger.info("SlackService initialized with InlineAgent")
     
     def handle_event(self, event_data):
         """
@@ -113,7 +113,7 @@ class SlackService:
             thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
             conversation_context = self._build_conversation_context(thread_messages)
             
-            self.logger.info("Generating response using Bedrock")
+            self.logger.info("Generating response using Bedrock with InlineAgent")
             response = self.bedrock_client.generate_response(conversation_context)
             slack_response = self.converter.markdown_to_slack_format(response)
             
