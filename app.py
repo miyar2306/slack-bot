@@ -17,6 +17,7 @@ port = int(os.environ.get('PORT', 8080))
 debug = os.environ.get('DEBUG', 'True').lower() == 'true'
 event_retention_period = 3600
 aws_region = os.environ.get("AWS_REGION", "us-west-2")
+aws_profile = os.environ.get("AWS_PROFILE", "default")
 mcp_config_file = os.environ.get("MCP_CONFIG_FILE", "config/mcp_servers.json")
 
 bedrock_max_recursion_depth = int(os.environ.get("BEDROCK_MAX_RECURSION_DEPTH", 10))
@@ -30,6 +31,7 @@ bedrock_client = InlineBedrockClient(
     region_name=aws_region,
     config_file_path=mcp_config_file,
     max_recursion_depth=bedrock_max_recursion_depth,
+    profile=aws_profile,
     logger=logger
 )
 

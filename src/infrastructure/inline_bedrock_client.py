@@ -36,9 +36,10 @@ def error_handler(func):
 class InlineBedrockClient:
     """InlineAgentを使用してAmazon Bedrockとの通信を処理するクライアント"""
     
-    def __init__(self, region_name, config_file_path="config/mcp_servers.json", max_recursion_depth=5, logger=None):
+    def __init__(self, region_name, config_file_path="config/mcp_servers.json", max_recursion_depth=5, profile="default", logger=None):
         self.logger = logger or setup_logger(__name__)
         self.client = boto3.client('bedrock-runtime', region_name=region_name)
+        self.profile = profile
         self.model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         self.config_file_path = config_file_path
         self.MAX_RECURSION_DEPTH = max_recursion_depth
@@ -143,7 +144,7 @@ class InlineBedrockClient:
             instruction=system_text,
             # エージェント名とプロファイルを指定
             agent_name="slack_bot_agent",
-            profile="default",
+            profile=self.profile,
             # ActionGroupを指定
             action_groups=self.action_groups
         )
