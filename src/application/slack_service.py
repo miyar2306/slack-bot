@@ -53,16 +53,16 @@ class SlackService:
                 self.logger.info(f"Ignoring bot message: {event.get('bot_id')}")
                 return True
             
-            threading.Thread(target=self._route_event_to_handler, args=(event,)).start()
+            threading.Thread(target=self._dispatch_event, args=(event,)).start()
             return True
             
         except Exception as e:
             self.logger.error(f"Error handling event: {e}", exc_info=True)
             return False
     
-    def _route_event_to_handler(self, event):
+    def _dispatch_event(self, event):
         """
-        Route event to appropriate handler based on type (runs in separate thread)
+        Dispatch event to appropriate handler based on type (runs in separate thread)
         
         Args:
             event (dict): Slack event

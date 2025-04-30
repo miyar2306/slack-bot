@@ -91,8 +91,8 @@ def test_handle_event_exception(service):
     assert result is False
 
 @patch('threading.Thread')
-def test_route_event_to_handler_app_mention(mock_thread, service):
-    """app_mentionイベントのルーティングテスト"""
+def test_dispatch_event_app_mention(mock_thread, service):
+    """app_mentionイベントのディスパッチテスト"""
     # テストデータ
     event = {
         "type": "app_mention",
@@ -108,8 +108,8 @@ def test_route_event_to_handler_app_mention(mock_thread, service):
     mock_thread.return_value.start.assert_called_once()
 
 @patch('threading.Thread')
-def test_route_event_to_handler_direct_message(mock_thread, service):
-    """DMメッセージのルーティングテスト"""
+def test_dispatch_event_direct_message(mock_thread, service):
+    """DMメッセージのディスパッチテスト"""
     # テストデータ
     event = {
         "type": "message",
