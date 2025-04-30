@@ -6,17 +6,8 @@ from slack_sdk.signature import SignatureVerifier
 from src.infrastructure.logger import setup_logger
 
 class SlackAPI:
-    """Provides Slack API endpoints using Bottle framework"""
     
     def __init__(self, slack_service, signing_secret=None, logger=None):
-        """
-        Initialize SlackAPI
-        
-        Args:
-            slack_service: SlackService instance
-            signing_secret: Slack Signing Secret for request verification
-            logger: Logger instance (optional)
-        """
         self.slack_service = slack_service
         self.logger = logger or setup_logger(__name__)
         self.app = Bottle()
@@ -35,7 +26,6 @@ class SlackAPI:
         self.logger.info("SlackAPI initialized")
     
     def _setup_routes(self):
-        """Set up API routes"""
         self.app.add_hook('after_request', self._enable_cors)
         
         self.app.route('/', method='GET', callback=self._index)
@@ -46,63 +36,60 @@ class SlackAPI:
         self.app.error(500)(self._error500)
     
     def _enable_cors(self):
-        """Enable CORS middleware"""
         response.headers['Access-Control-Allow-Origin'] = '*'
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Origin, Accept, Content-Type, X-Requested-With, X-CSRF-Token'
     
     def _options_handler(self, path=None):
-        """Handle OPTIONS requests"""
         return {}
     
     def _index(self):
-        """Root endpoint"""
         return {'status': 'ok', 'message': 'API is running'}
     
+    def _verify_slack_request(self):
+        if not self.signature_verifier:
+            return request.json
+            
+        body_raw = request.body.read()
+        body = body_raw.decode('utf-8')
+        
+        timestamp = request.headers.get("X-Slack-Request-Timestamp") or request.headers.get("x-slack-request-timestamp")
+        signature = request.headers.get("X-Slack-Signature") or request.headers.get("x-slack-signature")
+        
+        if not timestamp or not signature:
+            return self._error_response(
+                403, 
+                'Missing verification headers',
+                f"Missing Slack verification headers: timestamp={bool(timestamp)}, signature={bool(signature)}"
+            )
+        
+        current_time = int(time.time())
+        if abs(current_time - int(timestamp)) > 60 * 5:
+            return self._error_response(
+                403, 
+                'Request expired',
+                f"Expired Slack request: timestamp={timestamp}, current={current_time}"
+            )
+        
+        if not self.signature_verifier.is_valid(
+            body=body,
+            timestamp=timestamp,
+            signature=signature
+        ):
+            return self._error_response(
+                403, 
+                'Invalid request signature',
+                f"Invalid Slack request signature detected. Remote IP: {request.remote_addr}, Timestamp: {timestamp}"
+            )
+        
+        return json.loads(body)
+    
     def _slack_events(self):
-        """Process Slack events"""
         try:
-            # リクエスト検証を実装
-            if self.signature_verifier:
-                # リクエストボディを一度だけ読み込む
-                body_raw = request.body.read()
-                body = body_raw.decode('utf-8')
-                
-                # リクエストヘッダーからタイムスタンプと署名を取得
-                timestamp = request.headers.get("X-Slack-Request-Timestamp") or request.headers.get("x-slack-request-timestamp")
-                signature = request.headers.get("X-Slack-Signature") or request.headers.get("x-slack-signature")
-                
-                if not timestamp or not signature:
-                    self.logger.warning(f"Missing Slack verification headers: timestamp={bool(timestamp)}, signature={bool(signature)}")
-                    response.status = 403
-                    return {'status': 'error', 'message': 'Missing verification headers'}
-                
-                # タイムスタンプの検証（5分以上経過したリクエストは拒否）
-                current_time = int(time.time())
-                if abs(current_time - int(timestamp)) > 60 * 5:
-                    self.logger.warning(f"Expired Slack request: timestamp={timestamp}, current={current_time}")
-                    response.status = 403
-                    return {'status': 'error', 'message': 'Request expired'}
-                
-                # 署名を検証
-                if not self.signature_verifier.is_valid(
-                    body=body,
-                    timestamp=timestamp,
-                    signature=signature
-                ):
-                    self.logger.warning(
-                        f"Invalid Slack request signature detected. "
-                        f"Remote IP: {request.remote_addr}, "
-                        f"Timestamp: {timestamp}"
-                    )
-                    response.status = 403
-                    return {'status': 'error', 'message': 'Invalid request signature'}
-                
-                # ボディからJSONをパース
-                data = json.loads(body)
-            else:
-                # 署名検証なしの場合は直接request.jsonを使用
-                data = request.json
+            data = self._verify_slack_request()
+            
+            if isinstance(data, dict) and 'status' in data and data['status'] == 'error':
+                return data
             
             self.logger.info(f"Received Slack event type: {data.get('type')}")
             self.logger.debug(f"Event details: {json.dumps(data, indent=2)}")
@@ -118,22 +105,24 @@ class SlackAPI:
             return {}
             
         except Exception as e:
-            self.logger.error(f"Error processing Slack event: {e}", exc_info=True)
-            response.status = 400
-            return {'status': 'error', 'message': str(e)}
+            return self._error_response(400, str(e), f"Error processing Slack event: {e}", exc_info=True)
+    
+    def _error_response(self, status_code, message, log_message=None, exc_info=False):
+        if log_message:
+            if status_code >= 500:
+                self.logger.error(log_message, exc_info=exc_info)
+            else:
+                self.logger.warning(log_message)
+                
+        response.status = status_code
+        response.content_type = 'application/json'
+        return json.dumps({'status': 'error', 'message': message})
     
     def _error404(self, error):
-        """Handle 404 errors"""
-        self.logger.warning(f"404 error: {request.url}")
-        response.content_type = 'application/json'
-        return json.dumps({'status': 'error', 'message': 'Not found'})
+        return self._error_response(404, 'Not found', f"404 error: {request.url}")
     
     def _error500(self, error):
-        """Handle 500 errors"""
-        self.logger.error(f"500 error: {error}", exc_info=True)
-        response.content_type = 'application/json'
-        return json.dumps({'status': 'error', 'message': 'Internal server error'})
+        return self._error_response(500, 'Internal server error', f"500 error: {error}", exc_info=True)
     
     def get_app(self):
-        """Get Bottle application instance"""
         return self.app
