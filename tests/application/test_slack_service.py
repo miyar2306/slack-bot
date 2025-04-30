@@ -171,19 +171,20 @@ def test_handle_direct_message_thread(service, mock_slack_client, mock_bedrock_c
     
     # _process_responseをモック化
     service._process_response = MagicMock()
-    service._create_conversation_history = MagicMock(return_value=[{"role": "user", "content": [{"text": "こんにちは"}]}])
+    cleaned_messages = [{"text": "こんにちは", "ts": "1234567890.123456"}]
+    service._clean_messages = MagicMock(return_value=cleaned_messages)
     
     # テスト実行（スレッドメッセージ）
     service._handle_direct_message("D12345", "1234567890.123456", False)
     
     # 検証
     mock_slack_client.get_thread_messages.assert_called_once_with("D12345", "1234567890.123456")
-    service._create_conversation_history.assert_called_once()
-    mock_bedrock_client.generate_response.assert_called_once()
+    service._clean_messages.assert_called_once()
+    mock_bedrock_client.generate_response.assert_called_once_with(cleaned_messages)
     service._process_response.assert_called_once()
 
-def test_create_conversation_history(service):
-    """会話履歴作成のテスト"""
+def test_clean_messages(service):
+    """メッセージクリーニングのテスト"""
     # テストデータ
     messages = [
         {"text": "<@U12345> こんにちは", "ts": "1234567890.123456"},
@@ -192,7 +193,34 @@ def test_create_conversation_history(service):
     ]
     
     # テスト実行
-    result = service._create_conversation_history(messages)
+    result = service._clean_messages(messages)
+    
+    # 検証
+    assert len(result) == 3
+    assert result[0]["text"] == "こんにちは"
+    assert result[1]["text"] == "こんにちは！何かお手伝いできることはありますか？"
+    assert result[2]["text"] == "天気を教えて"
+    assert result[0]["ts"] == "1234567890.123456"
+    assert result[1]["bot_id"] == "B12345"
+
+def test_bedrock_create_conversation_history(service, mock_bedrock_client):
+    """BedrockClientの会話履歴作成テスト"""
+    # テストデータ
+    cleaned_messages = [
+        {"text": "こんにちは", "ts": "1234567890.123456"},
+        {"text": "こんにちは！何かお手伝いできることはありますか？", "bot_id": "B12345", "ts": "1234567890.123457"},
+        {"text": "天気を教えて", "ts": "1234567890.123458"}
+    ]
+    
+    # モックの設定
+    mock_bedrock_client.create_conversation_history_from_messages.return_value = [
+        {"role": "user", "content": [{"text": "こんにちは"}]},
+        {"role": "assistant", "content": [{"text": "こんにちは！何かお手伝いできることはありますか？"}]},
+        {"role": "user", "content": [{"text": "天気を教えて"}]}
+    ]
+    
+    # テスト実行
+    result = mock_bedrock_client.create_conversation_history_from_messages(cleaned_messages)
     
     # 検証
     assert len(result) == 3
@@ -200,6 +228,7 @@ def test_create_conversation_history(service):
     assert result[0]["content"][0]["text"] == "こんにちは"
     assert result[1]["role"] == "assistant"
     assert result[2]["role"] == "user"
+    mock_bedrock_client.create_conversation_history_from_messages.assert_called_once_with(cleaned_messages)
 
 def test_remove_mention_tags(service):
     """メンションタグ削除のテスト"""

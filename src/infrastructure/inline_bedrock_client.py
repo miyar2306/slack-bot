@@ -122,17 +122,25 @@ class InlineBedrockClient:
     
     
     @ensure_async_loop
-    async def generate_response(self, message_or_conversation):
+    async def generate_response(self, input_data):
         """メッセージまたは会話履歴に対するレスポンスを生成"""
         # システムプロンプトの準備
         system_text = self._load_system_prompt()
         
-        # 入力テキストの準備
-        if isinstance(message_or_conversation, str):
-            input_text = message_or_conversation
-        elif isinstance(message_or_conversation, list):
-            # 会話履歴をテキストに変換
-            input_text = self._convert_conversation_to_text(message_or_conversation)
+        # 入力データの処理
+        if isinstance(input_data, str):
+            # 文字列の場合はそのまま使用
+            input_text = input_data
+        elif isinstance(input_data, list):
+            if all(isinstance(item, dict) and "text" in item for item in input_data):
+                # Slackメッセージリストの場合は会話履歴に変換
+                conversation = self.create_conversation_history_from_messages(input_data)
+                input_text = self._convert_conversation_to_text(conversation)
+            elif all(isinstance(item, dict) and "role" in item for item in input_data):
+                # 既に会話履歴形式の場合はテキストに変換
+                input_text = self._convert_conversation_to_text(input_data)
+            else:
+                raise ValueError("Invalid message format")
         else:
             raise ValueError("Invalid input format")
         
@@ -154,6 +162,22 @@ class InlineBedrockClient:
         # エージェントを実行
         response = await agent.invoke(input_text=input_text)
         return response
+    
+    def create_conversation_history_from_messages(self, messages):
+        """Slackメッセージから会話履歴を作成"""
+        conversation = []
+        
+        for message in messages:
+            text = message.get("text", "")
+            
+            if text:
+                role = "assistant" if message.get("bot_id") else "user"
+                conversation.append({
+                    "role": role,
+                    "content": [{"text": text}]
+                })
+        
+        return conversation
     
     def _convert_conversation_to_text(self, conversation):
         """会話履歴をテキストに変換"""

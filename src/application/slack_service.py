@@ -66,12 +66,15 @@ class SlackService:
     def _handle_mention(self, channel, thread_ts):
         """メンションイベントを処理"""
         try:
-            # スレッドメッセージを取得して会話コンテキストを構築
+            # スレッドメッセージを取得
             thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
-            conversation_context = self._create_conversation_history(thread_messages)
+            
+            # メンションタグを削除
+            cleaned_messages = self._clean_messages(thread_messages)
             
             self.logger.info("Generating response using Bedrock with InlineAgent")
-            response = self.bedrock_client.generate_response(conversation_context)
+            # クリーニングしたメッセージを直接BedrockClientに渡す
+            response = self.bedrock_client.generate_response(cleaned_messages)
             
             # 共通の応答処理メソッドを使用
             self._process_response(channel, thread_ts, response)
@@ -88,30 +91,30 @@ class SlackService:
                 response = self.bedrock_client.generate_response(message_text)
             else:
                 thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
-                conversation_context = self._create_conversation_history(thread_messages)
-                response = self.bedrock_client.generate_response(conversation_context)
+                # メンションタグを削除
+                cleaned_messages = self._clean_messages(thread_messages)
+                # クリーニングしたメッセージを直接BedrockClientに渡す
+                response = self.bedrock_client.generate_response(cleaned_messages)
             
             # 共通の応答処理メソッドを使用
             self._process_response(channel, thread_ts, response)
         except Exception as e:
             self.logger.error(f"Error in _handle_direct_message: {e}", exc_info=True)
     
-    def _create_conversation_history(self, messages):
-        """スレッドメッセージから会話履歴を作成"""
-        conversation = []
-        
+    def _clean_messages(self, messages):
+        """メッセージリストの各テキストからメンションタグを削除"""
+        cleaned_messages = []
         for message in messages:
             text = message.get("text", "")
             clean_text = self._remove_mention_tags(text)
             
             if clean_text:
-                role = "assistant" if message.get("bot_id") else "user"
-                conversation.append({
-                    "role": role,
-                    "content": [{"text": clean_text}]
-                })
+                # 元のメッセージをコピーして、テキストだけ置き換える
+                cleaned_message = message.copy()
+                cleaned_message["text"] = clean_text
+                cleaned_messages.append(cleaned_message)
         
-        return conversation
+        return cleaned_messages
     
     def _process_response(self, channel, thread_ts, response_text):
         """応答テキストを処理してSlackに送信する共通ロジック"""
