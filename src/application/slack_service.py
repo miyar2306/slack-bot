@@ -53,16 +53,16 @@ class SlackService:
                 self.logger.info(f"Ignoring bot message: {event.get('bot_id')}")
                 return True
             
-            threading.Thread(target=self._process_event, args=(event,)).start()
+            threading.Thread(target=self._route_event_to_handler, args=(event,)).start()
             return True
             
         except Exception as e:
             self.logger.error(f"Error handling event: {e}", exc_info=True)
             return False
     
-    def _process_event(self, event):
+    def _route_event_to_handler(self, event):
         """
-        Process event based on type (runs in separate thread)
+        Route event to appropriate handler based on type (runs in separate thread)
         
         Args:
             event (dict): Slack event
@@ -86,219 +86,40 @@ class SlackService:
     
     def _handle_mention(self, channel, thread_ts):
         """Handle app_mention events"""
-        # シンプルなローディングブロックを作成
-        loading_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": ":hourglass_flowing_sand: *処理中です...*"
-                }
-            }
-        ]
-        
-        # 処理開始時にローディングメッセージを送信
-        result = self.slack_client.send_message(
-            channel=channel,
-            text="処理中です...",  # フォールバックテキスト
-            thread_ts=thread_ts,
-            blocks=loading_blocks
-        )
-        
-        # タイムスタンプを取得
-        temp_ts = result.get("ts") if result.get("success") else None
-        
         try:
             # スレッドメッセージを取得して会話コンテキストを構築
             thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
-            conversation_context = self._build_conversation_context(thread_messages)
+            conversation_context = self._create_conversation_history(thread_messages)
             
             self.logger.info("Generating response using Bedrock with InlineAgent")
             response = self.bedrock_client.generate_response(conversation_context)
-            slack_response = self.converter.markdown_to_slack_format(response)
             
-            # 処理完了後にメッセージを更新
-            if temp_ts:
-                update_result = self.slack_client.update_message(
-                    channel=channel,
-                    ts=temp_ts,
-                    text=slack_response
-                )
-                
-                if not update_result.get("success"):
-                    error_code = update_result.get("error_code")
-                    
-                    # メッセージ長超過エラーの場合
-                    if error_code == "msg_too_long":
-                        self.logger.info("Message too long, splitting into multiple messages")
-                        # 長いメッセージを更新
-                        self.slack_client.update_long_message(
-                            channel=channel,
-                            ts=temp_ts,
-                            text=slack_response
-                        )
-                    else:
-                        # その他のエラーの場合
-                        error_message = update_result.get("error")
-                        self.logger.error(f"Error updating message: {error_message}")
-                        
-                        # エラーメッセージを表示
-                        error_blocks = [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f":warning: *エラーが発生しました*\n{error_message}"
-                                }
-                            }
-                        ]
-                        
-                        self.slack_client.update_message(
-                            channel=channel,
-                            ts=temp_ts,
-                            text=f"エラーが発生しました: {error_code}",
-                            blocks=error_blocks
-                        )
-            else:
-                # 更新できない場合は新しいメッセージを送信
-                self.slack_client.send_long_message(
-                    channel=channel,
-                    text=slack_response,
-                    thread_ts=thread_ts
-                )
+            # 共通の応答処理メソッドを使用
+            self._process_response(channel, thread_ts, response)
         except Exception as e:
             self.logger.error(f"Error in _handle_mention: {e}", exc_info=True)
-            
-            # エラーが発生した場合、ローディングメッセージをエラーメッセージに更新
-            if temp_ts:
-                error_blocks = [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f":x: *エラーが発生しました*\n```{str(e)}```"
-                        }
-                    }
-                ]
-                
-                self.slack_client.update_message(
-                    channel=channel,
-                    ts=temp_ts,
-                    text=f"エラーが発生しました: {str(e)}",
-                    blocks=error_blocks
-                )
     
     def _handle_direct_message(self, channel, thread_ts, is_single_message):
         """Handle direct message events"""
-        # シンプルなローディングブロックを作成
-        loading_blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": ":hourglass_flowing_sand: *処理中です...*"
-                }
-            }
-        ]
-        
-        # 処理開始時にローディングメッセージを送信
-        result = self.slack_client.send_message(
-            channel=channel,
-            text="処理中です...",  # フォールバックテキスト
-            thread_ts=thread_ts,
-            blocks=loading_blocks
-        )
-        
-        # タイムスタンプを取得
-        temp_ts = result.get("ts") if result.get("success") else None
-        
         try:
             # 処理実行
             if is_single_message:
                 self.logger.debug("Processing single DM message")
-                message_text = self._clean_mention(thread_ts)
+                message_text = self._remove_mention_tags(thread_ts)
                 response = self.bedrock_client.generate_response(message_text)
-                slack_response = self.converter.markdown_to_slack_format(response)
             else:
                 thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
-                conversation_context = self._build_conversation_context(thread_messages)
+                conversation_context = self._create_conversation_history(thread_messages)
                 response = self.bedrock_client.generate_response(conversation_context)
-                slack_response = self.converter.markdown_to_slack_format(response)
             
-            # 処理完了後にメッセージを更新
-            if temp_ts:
-                update_result = self.slack_client.update_message(
-                    channel=channel,
-                    ts=temp_ts,
-                    text=slack_response
-                )
-                
-                if not update_result.get("success"):
-                    error_code = update_result.get("error_code")
-                    
-                    # メッセージ長超過エラーの場合
-                    if error_code == "msg_too_long":
-                        self.logger.info("Message too long, splitting into multiple messages")
-                        # 長いメッセージを更新
-                        self.slack_client.update_long_message(
-                            channel=channel,
-                            ts=temp_ts,
-                            text=slack_response
-                        )
-                    else:
-                        # その他のエラーの場合
-                        error_message = update_result.get("error")
-                        self.logger.error(f"Error updating message: {error_message}")
-                        
-                        # エラーメッセージを表示
-                        error_blocks = [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f":warning: *エラーが発生しました*\n{error_message}"
-                                }
-                            }
-                        ]
-                        
-                        self.slack_client.update_message(
-                            channel=channel,
-                            ts=temp_ts,
-                            text=f"エラーが発生しました: {error_code}",
-                            blocks=error_blocks
-                        )
-            else:
-                # 更新できない場合は新しいメッセージを送信
-                self.slack_client.send_long_message(
-                    channel=channel,
-                    text=slack_response,
-                    thread_ts=thread_ts
-                )
+            # 共通の応答処理メソッドを使用
+            self._process_response(channel, thread_ts, response)
         except Exception as e:
             self.logger.error(f"Error in _handle_direct_message: {e}", exc_info=True)
-            
-            # エラーが発生した場合、ローディングメッセージをエラーメッセージに更新
-            if temp_ts:
-                error_blocks = [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f":x: *エラーが発生しました*\n```{str(e)}```"
-                        }
-                    }
-                ]
-                
-                self.slack_client.update_message(
-                    channel=channel,
-                    ts=temp_ts,
-                    text=f"エラーが発生しました: {str(e)}",
-                    blocks=error_blocks
-                )
     
-    def _build_conversation_context(self, messages):
+    def _create_conversation_history(self, messages):
         """
-        Build conversation context from thread messages
+        Create conversation history from thread messages
         
         Args:
             messages (list): List of messages in thread
@@ -310,7 +131,7 @@ class SlackService:
         
         for message in messages:
             text = message.get("text", "")
-            clean_text = self._clean_mention(text)
+            clean_text = self._remove_mention_tags(text)
             
             if clean_text:
                 role = "assistant" if message.get("bot_id") else "user"
@@ -321,14 +142,113 @@ class SlackService:
         
         return conversation
     
-    def _clean_mention(self, text):
+    def _process_response(self, channel, thread_ts, response_text):
+        """
+        応答テキストを処理してSlackに送信する共通ロジック
+        Returns:
+            dict: 処理結果
+        """
+        # ローディングメッセージの送信
+        loading_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":hourglass_flowing_sand: *処理中です...*"
+                }
+            }
+        ]
+        
+        result = self.slack_client.send_message(
+            channel=channel,
+            text="処理中です...",
+            thread_ts=thread_ts,
+            blocks=loading_blocks
+        )
+        
+        temp_ts = result.get("ts") if result.get("success") else None
+        
+        try:
+            # 応答をSlack形式に変換
+            slack_response = self.converter.markdown_to_slack_format(response_text)
+            
+            # メッセージを更新
+            if temp_ts:
+                self._update_message_with_response(channel, temp_ts, slack_response)
+            else:
+                # 更新できない場合は新しいメッセージを送信
+                self.slack_client.send_long_message(
+                    channel=channel,
+                    text=slack_response,
+                    thread_ts=thread_ts
+                )
+                
+            return {"success": True, "temp_ts": temp_ts}
+        except Exception as e:
+            self._handle_response_error(channel, temp_ts, e)
+            return {"success": False, "error": str(e)}
+    
+    def _update_message_with_response(self, channel, temp_ts, slack_response):
+        """
+        生成した応答でメッセージを更新する
+        """
+        update_result = self.slack_client.update_message(
+            channel=channel,
+            ts=temp_ts,
+            text=slack_response
+        )
+        
+        if not update_result.get("success"):
+            error_code = update_result.get("error_code")
+            
+            # メッセージ長超過エラーの場合
+            if error_code == "msg_too_long":
+                self.logger.info("Message too long, splitting into multiple messages")
+                self.slack_client.update_long_message(
+                    channel=channel,
+                    ts=temp_ts,
+                    text=slack_response
+                )
+            else:
+                # その他のエラーの場合
+                error_message = update_result.get("error")
+                self.logger.error(f"Error updating message: {error_message}")
+                
+                self._show_error_message(channel, temp_ts, f"エラーが発生しました: {error_code}", error_message)
+    
+    def _handle_response_error(self, channel, temp_ts, exception):
+        """
+        応答処理中のエラーを処理する
+        """
+        self.logger.error(f"Error processing response: {exception}", exc_info=True)
+        
+        if temp_ts:
+            self._show_error_message(channel, temp_ts, f"エラーが発生しました: {str(exception)}", str(exception))
+    
+    def _show_error_message(self, channel, ts, text, error_detail):
+        """
+        エラーメッセージを表示する
+
+        """
+        error_blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":x: *エラーが発生しました*\n```{error_detail}```"
+                }
+            }
+        ]
+        
+        self.slack_client.update_message(
+            channel=channel,
+            ts=ts,
+            text=text,
+            blocks=error_blocks
+        )
+    
+    def _remove_mention_tags(self, text):
         """
         Remove mention tags from message text
-        
-        Args:
-            text (str): Original message text
-            
-        Returns:
-            str: Text with mentions removed
         """
         return re.sub(r'<@[A-Z0-9]+>', '', text).strip()
