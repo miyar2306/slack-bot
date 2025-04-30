@@ -4,18 +4,10 @@ from src.infrastructure.logger import setup_logger
 from markdown2slack.app import Convert
 
 class SlackService:
-    """Business logic for processing Slack events"""
+    """Slackイベント処理のビジネスロジック"""
     
     def __init__(self, slack_client, bedrock_client, event_retention_period=3600, logger=None):
-        """
-        Initialize SlackService
-        
-        Args:
-            slack_client: SlackClient instance
-            bedrock_client: InlineBedrockClient instance
-            event_retention_period (int): How long to retain event IDs (seconds)
-            logger: Logger instance (optional)
-        """
+        """SlackServiceの初期化"""
         self.slack_client = slack_client
         self.bedrock_client = bedrock_client
         self.event_retention_period = event_retention_period
@@ -25,15 +17,7 @@ class SlackService:
         self.logger.info("SlackService initialized with InlineAgent")
     
     def handle_event(self, event_data):
-        """
-        Process a Slack event
-        
-        Args:
-            event_data (dict): Slack event data
-            
-        Returns:
-            bool: True if processing successful, False otherwise
-        """
+        """Slackイベントを処理"""
         try:
             event_id = event_data.get("event_id")
             
@@ -61,19 +45,14 @@ class SlackService:
             return False
     
     def _dispatch_event(self, event):
-        """
-        Dispatch event to appropriate handler based on type (runs in separate thread)
-        
-        Args:
-            event (dict): Slack event
-        """
+        """イベントタイプに基づいて適切なハンドラに振り分け（別スレッドで実行）"""
         try:
             event_type = event.get("type")
             channel = event.get("channel")
             
             self.logger.info(f"Processing event type: {event_type} in channel: {channel}")
             
-            # Get thread timestamp (either direct or from parent)
+            # スレッドのタイムスタンプを取得（直接またはペアレントから）
             thread_ts = event.get("thread_ts") or event.get("ts")
             
             if event_type == "app_mention":
@@ -85,7 +64,7 @@ class SlackService:
             self.logger.error(f"Error processing event: {e}", exc_info=True)
     
     def _handle_mention(self, channel, thread_ts):
-        """Handle app_mention events"""
+        """メンションイベントを処理"""
         try:
             # スレッドメッセージを取得して会話コンテキストを構築
             thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
@@ -100,7 +79,7 @@ class SlackService:
             self.logger.error(f"Error in _handle_mention: {e}", exc_info=True)
     
     def _handle_direct_message(self, channel, thread_ts, is_single_message):
-        """Handle direct message events"""
+        """ダイレクトメッセージイベントを処理"""
         try:
             # 処理実行
             if is_single_message:
@@ -118,15 +97,7 @@ class SlackService:
             self.logger.error(f"Error in _handle_direct_message: {e}", exc_info=True)
     
     def _create_conversation_history(self, messages):
-        """
-        Create conversation history from thread messages
-        
-        Args:
-            messages (list): List of messages in thread
-            
-        Returns:
-            list: Conversation history formatted for Bedrock Converse API
-        """
+        """スレッドメッセージから会話履歴を作成"""
         conversation = []
         
         for message in messages:
@@ -143,11 +114,7 @@ class SlackService:
         return conversation
     
     def _process_response(self, channel, thread_ts, response_text):
-        """
-        応答テキストを処理してSlackに送信する共通ロジック
-        Returns:
-            dict: 処理結果
-        """
+        """応答テキストを処理してSlackに送信する共通ロジック"""
         # ローディングメッセージの送信
         loading_blocks = [
             {
@@ -189,9 +156,7 @@ class SlackService:
             return {"success": False, "error": str(e)}
     
     def _update_message_with_response(self, channel, temp_ts, slack_response):
-        """
-        生成した応答でメッセージを更新する
-        """
+        """生成した応答でメッセージを更新"""
         update_result = self.slack_client.update_message(
             channel=channel,
             ts=temp_ts,
@@ -217,19 +182,14 @@ class SlackService:
                 self._show_error_message(channel, temp_ts, f"エラーが発生しました: {error_code}", error_message)
     
     def _handle_response_error(self, channel, temp_ts, exception):
-        """
-        応答処理中のエラーを処理する
-        """
+        """応答処理中のエラーを処理"""
         self.logger.error(f"Error processing response: {exception}", exc_info=True)
         
         if temp_ts:
             self._show_error_message(channel, temp_ts, f"エラーが発生しました: {str(exception)}", str(exception))
     
     def _show_error_message(self, channel, ts, text, error_detail):
-        """
-        エラーメッセージを表示する
-
-        """
+        """エラーメッセージを表示"""
         error_blocks = [
             {
                 "type": "section",
@@ -248,7 +208,5 @@ class SlackService:
         )
     
     def _remove_mention_tags(self, text):
-        """
-        Remove mention tags from message text
-        """
+        """メッセージテキストからメンションタグを削除"""
         return re.sub(r'<@[A-Z0-9]+>', '', text).strip()
