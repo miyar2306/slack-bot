@@ -1,9 +1,15 @@
 import pytest
 import json
 import asyncio
+import os
 from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from src.infrastructure.bedrock_client import BedrockClient, ensure_async_loop, error_handler
+from dotenv import load_dotenv
 
+# 環境変数を読み込む
+load_dotenv()
+
+# フィクスチャ
 @pytest.fixture
 def mock_logger():
     """ロガーのモックを作成するフィクスチャ"""
@@ -40,8 +46,27 @@ def bedrock_client(mock_logger, mock_boto3_client):
         client._get_or_create_event_loop = MagicMock(return_value=asyncio.new_event_loop())
         return client
 
-class TestBedrockClient:
-    """BedrockClientのテストクラス"""
+@pytest.fixture
+def time_mcp_config():
+    """time MCPサーバー設定を含むMCP設定を作成するフィクスチャ"""
+    return {
+        "time": {
+            "command": "/Users/ao.miyazawa/.pyenv/shims/uvx",
+            "args": ["mcp-server-time"],
+            "env": {}
+        }
+    }
+
+@pytest.fixture
+def aws_credentials():
+    """AWS認証情報を確認するフィクスチャ"""
+    # 環境変数からAWS認証情報が設定されているか確認
+    if not os.environ.get("AWS_ACCESS_KEY_ID") or not os.environ.get("AWS_SECRET_ACCESS_KEY"):
+        pytest.skip("AWS認証情報が設定されていません。.envファイルを確認してください。")
+
+
+class TestBedrockClientInit:
+    """初期化とコンフィグ関連のテスト"""
     
     def test_init(self, bedrock_client, mock_logger, mock_boto3_client):
         """初期化のテスト"""
@@ -83,6 +108,10 @@ class TestBedrockClient:
             result = bedrock_client._load_system_prompt()
             assert result == "You are a helpful AI assistant. Speak in Japanese"
             bedrock_client.logger.warning.assert_called_once()
+
+
+class TestBedrockClientMCP:
+    """MCPサーバー関連のテスト"""
     
     @pytest.mark.asyncio
     async def test_initialize_mcp_client_and_create_action_group(self, bedrock_client, mock_logger):
@@ -150,6 +179,45 @@ class TestBedrockClient:
             bedrock_client.logger.error.assert_called_once()
             mock_mcp_client.cleanup.assert_called_once()
             assert "test_server" not in bedrock_client.mcp_clients
+    
+    @pytest.mark.asyncio
+    async def test_cleanup_mcp_clients(self, bedrock_client):
+        """MCPクライアントクリーンアップのテスト"""
+        # モックのMCPクライアントを設定
+        mock_client1 = AsyncMock()
+        mock_client2 = AsyncMock()
+        bedrock_client.mcp_clients = {
+            "server1": mock_client1,
+            "server2": mock_client2
+        }
+        
+        # ensure_async_loopデコレータをバイパス
+        await bedrock_client.cleanup_mcp_clients.__wrapped__(bedrock_client)
+        
+        # 検証
+        mock_client1.cleanup.assert_called_once()
+        mock_client2.cleanup.assert_called_once()
+        assert bedrock_client.mcp_clients == {}
+    
+    @pytest.mark.asyncio
+    async def test_cleanup_mcp_clients_error(self, bedrock_client):
+        """MCPクライアントクリーンアップエラーのテスト"""
+        # モックのMCPクライアントを設定
+        mock_client = AsyncMock()
+        mock_client.cleanup.side_effect = Exception("Cleanup error")
+        bedrock_client.mcp_clients = {"server": mock_client}
+        
+        # ensure_async_loopデコレータをバイパス
+        await bedrock_client.cleanup_mcp_clients.__wrapped__(bedrock_client)
+        
+        # 検証
+        mock_client.cleanup.assert_called_once()
+        bedrock_client.logger.error.assert_called_once()
+        assert bedrock_client.mcp_clients == {}
+
+
+class TestBedrockClientConversation:
+    """会話処理関連のテスト"""
     
     def test_process_input_data_string(self, bedrock_client):
         """文字列入力処理のテスト"""
@@ -250,36 +318,72 @@ class TestBedrockClient:
         assert result == expected
     
     @pytest.mark.asyncio
-    async def test_cleanup_mcp_clients(self, bedrock_client):
-        """MCPクライアントクリーンアップのテスト"""
-        # モックのMCPクライアントを設定
-        mock_client1 = AsyncMock()
-        mock_client2 = AsyncMock()
-        bedrock_client.mcp_clients = {
-            "server1": mock_client1,
-            "server2": mock_client2
-        }
+    async def test_generate_response_mock(self, bedrock_client):
+        """generate_responseメソッドのモックテスト"""
+        # モックの設定
+        mock_agent = AsyncMock()
+        mock_agent.invoke.return_value = "モックレスポンス"
         
-        # ensure_async_loopデコレータをバイパス
-        await bedrock_client.cleanup_mcp_clients.__wrapped__(bedrock_client)
-        
-        # 検証
-        mock_client1.cleanup.assert_called_once()
-        mock_client2.cleanup.assert_called_once()
-        assert bedrock_client.mcp_clients == {}
+        with patch('src.infrastructure.bedrock_client.InlineAgent', return_value=mock_agent):
+            with patch.object(bedrock_client, '_load_system_prompt', return_value="テストプロンプト"):
+                with patch.object(bedrock_client, '_process_input_data', return_value="テスト入力"):
+                    # ensure_async_loopデコレータをバイパス
+                    response = await bedrock_client.generate_response.__wrapped__(bedrock_client, "テスト")
+                    
+                    # 検証
+                    assert response == "モックレスポンス"
+                    mock_agent.invoke.assert_called_once_with(input_text="テスト入力")
+
+
+# class TestBedrockClientIntegration:
+#     """統合テスト"""
     
-    @pytest.mark.asyncio
-    async def test_cleanup_mcp_clients_error(self, bedrock_client):
-        """MCPクライアントクリーンアップエラーのテスト"""
-        # モックのMCPクライアントを設定
-        mock_client = AsyncMock()
-        mock_client.cleanup.side_effect = Exception("Cleanup error")
-        bedrock_client.mcp_clients = {"server": mock_client}
+#     @pytest.mark.integration
+#     @pytest.mark.aws
+#     def test_real_bedrock_access(self, aws_credentials):
+#         """実際のAWS Bedrockサービスにアクセスするテスト"""
+#         # このテストはAWS認証情報が設定されている場合のみ実行
+#         region_name = os.environ.get("AWS_REGION", "us-west-2")
         
-        # ensure_async_loopデコレータをバイパス
-        await bedrock_client.cleanup_mcp_clients.__wrapped__(bedrock_client)
+#         # 実際のBedrockClientを作成
+#         client = BedrockClient(region_name=region_name)
         
-        # 検証
-        mock_client.cleanup.assert_called_once()
-        bedrock_client.logger.error.assert_called_once()
-        assert bedrock_client.mcp_clients == {}
+#         # 簡単なプロンプトを送信
+#         response = client.generate_response("こんにちは、今日の天気を教えてください。短く答えてください。")
+        
+#         # レスポンスが返ってくることを確認
+#         assert response is not None
+#         assert isinstance(response, str)
+#         assert len(response) > 0
+        
+#         # クリーンアップ
+#         client.cleanup_mcp_clients()
+    
+#     @pytest.mark.integration
+#     @pytest.mark.mcp
+#     def test_time_mcp_server(self):
+#         """timeのMCPサーバーを起動するテスト"""
+#         # 既存のMCP設定ファイルを使用
+#         config_path = "config/mcp_servers.json"
+        
+#         # BedrockClientを初期化
+#         client = BedrockClient(
+#             region_name="us-west-2",
+#             config_file_path=config_path
+#         )
+        
+#         try:
+#             # MCPサーバーを初期化
+#             client.initialize_inline_agent()
+            
+#             # MCPクライアントが作成されていることを確認
+#             assert "time" in client.mcp_clients
+#             assert len(client.action_groups) > 0
+            
+#             # 実際にMCPサーバーが機能していることを確認
+#             print("MCPサーバーが正常に起動しました")
+#             print(f"利用可能なMCPクライアント: {list(client.mcp_clients.keys())}")
+#             print(f"ActionGroups数: {len(client.action_groups)}")
+#         finally:
+#             # クリーンアップ
+#             client.cleanup_mcp_clients()
