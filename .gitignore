@@ -24,6 +24,7 @@ venv/
 .DS_Store
 *.swp
 config/*
+.coverage
 
 # 外部ライブラリ
 /libs/
