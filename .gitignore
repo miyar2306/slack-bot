@@ -23,7 +23,7 @@ venv/
 # その他
 .DS_Store
 *.swp
-config/mcp_servers.json
+config/*
 
 # 外部ライブラリ
 /libs/
