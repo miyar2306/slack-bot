@@ -7,7 +7,7 @@ from src.infrastructure.logger import setup_logger
 from src.infrastructure.slack_client import SlackClient
 from src.infrastructure.inline_bedrock_client import InlineBedrockClient
 from src.application.slack_service import SlackService
-from src.presentation.api import init_api
+from src.presentation.slack_controller import init_api
 
 load_dotenv()
 

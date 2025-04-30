@@ -10,7 +10,7 @@ def test_index_endpoint(test_client):
     assert resp.status_code == 200
     assert resp.json == {'status': 'ok', 'message': 'API is running'}
 
-@patch('src.presentation.api.signature_verifier')
+@patch('src.presentation.slack_controller.signature_verifier')
 def test_slack_events_challenge(mock_verifier, test_client, slack_event_challenge):
     """Slackチャレンジリクエストのテスト"""
     # 署名検証をモック
@@ -26,7 +26,7 @@ def test_slack_events_challenge(mock_verifier, test_client, slack_event_challeng
     assert resp.status_code == 200
     assert resp.json == {"challenge": "test_challenge"}
 
-@patch('src.presentation.api.signature_verifier')
+@patch('src.presentation.slack_controller.signature_verifier')
 def test_slack_events_message(mock_verifier, test_client, slack_event_message, mock_slack_service):
     """Slackメッセージイベントのテスト"""
     # 署名検証をモック
@@ -44,8 +44,8 @@ def test_slack_events_message(mock_verifier, test_client, slack_event_message, m
     # SlackServiceのhandle_eventメソッドが呼ばれたことを確認
     mock_slack_service.handle_event.assert_called_once_with(slack_event_message)
 
-@patch('src.presentation.api.signature_verifier')
-@patch('src.presentation.api.time')
+@patch('src.presentation.slack_controller.signature_verifier')
+@patch('src.presentation.slack_controller.time')
 def test_slack_events_invalid_request(mock_time, mock_verifier, test_client):
     """無効なリクエストのテスト（署名検証失敗とヘッダー不足を統合）"""
     # 現在時刻をモック
@@ -82,7 +82,7 @@ def test_slack_events_invalid_request(mock_time, mock_verifier, test_client):
     assert resp.json['status'] == 'error'
     assert resp.json['message'] == 'Missing verification headers'
 
-@patch('src.presentation.api.signature_verifier')
+@patch('src.presentation.slack_controller.signature_verifier')
 def test_error_handlers(mock_verifier, test_client, mock_slack_service):
     """エラーハンドラーのテスト（エラー処理を統合）"""
     # 署名検証をモック

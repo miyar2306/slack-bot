@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 from bottle import Bottle
-from src.presentation.api import init_api
+from src.presentation.slack_controller import init_api
 from src.application.slack_service import SlackService
 
 @pytest.fixture
