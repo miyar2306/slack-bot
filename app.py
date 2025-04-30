@@ -5,7 +5,7 @@ from bottle import run
 from dotenv import load_dotenv
 from src.infrastructure.logger import setup_logger
 from src.infrastructure.slack_client import SlackClient
-from src.infrastructure.inline_bedrock_client import InlineBedrockClient
+from src.infrastructure.bedrock_client import BedrockClient
 from src.application.slack_service import SlackService
 from src.presentation.slack_controller import init_api
 
@@ -27,7 +27,7 @@ log_level = getattr(logging, level_name, logging.INFO)
 logger = setup_logger("slack_bot", log_level)
 
 slack_client = SlackClient(slack_bot_token, logger)
-bedrock_client = InlineBedrockClient(
+bedrock_client = BedrockClient(
     region_name=aws_region,
     config_file_path=mcp_config_file,
     max_recursion_depth=bedrock_max_recursion_depth,

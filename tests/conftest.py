@@ -15,6 +15,9 @@ def mock_bedrock_client():
     """BedrockClientのモックを作成するフィクスチャ"""
     mock = MagicMock()
     # 必要に応じてモックの振る舞いを設定
+    # BedrockClientクラスの主要メソッドをモック
+    mock.generate_response.return_value = "モックレスポンス"
+    mock.create_conversation_history_from_messages.return_value = []
     return mock
 
 @pytest.fixture
