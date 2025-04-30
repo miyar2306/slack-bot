@@ -17,3 +17,10 @@ opentelemetry-exporter-otlp==1.31.1
 openinference-semantic-conventions==0.1.16
 pydantic-settings==2.8.1
 wrapt==1.17.2
+
+# Test dependencies
+pytest==8.0.0
+pytest-asyncio==0.23.5
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+WebTest==3.0.0

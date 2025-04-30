@@ -148,6 +148,8 @@ class InlineBedrockClient:
             # ActionGroupを指定
             action_groups=self.action_groups
         )
+
+        agent.profile = None
         
         # エージェントを実行
         response = await agent.invoke(input_text=input_text)

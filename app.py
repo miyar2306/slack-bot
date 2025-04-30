@@ -7,7 +7,7 @@ from src.infrastructure.logger import setup_logger
 from src.infrastructure.slack_client import SlackClient
 from src.infrastructure.inline_bedrock_client import InlineBedrockClient
 from src.application.slack_service import SlackService
-from src.presentation.api import SlackAPI
+from src.presentation.api import init_api
 
 load_dotenv()
 
@@ -52,9 +52,7 @@ slack_service = SlackService(
     event_retention_period=event_retention_period,
     logger=logger
 )
-slack_api = SlackAPI(slack_service, signing_secret=slack_signing_secret, logger=logger)
-
-app = slack_api.get_app()
+app = init_api(slack_service, signing_secret=slack_signing_secret, custom_logger=logger)
 
 def cleanup():
     """アプリケーション終了時のクリーンアップ処理"""
