@@ -43,7 +43,7 @@ except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-loop.run_until_complete(bedrock_client.initialize_inline_agent())
+bedrock_client.initialize_inline_agent()
 logger.info("InlineAgent initialized")
 
 slack_service = SlackService(
@@ -63,7 +63,7 @@ def cleanup():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     
-    loop.run_until_complete(bedrock_client.cleanup_mcp_clients())
+    bedrock_client.cleanup_mcp_clients()
 
 def main():
     try:
