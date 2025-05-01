@@ -40,7 +40,7 @@ def bedrock_client(mock_logger, mock_boto3_client):
             region_name="us-west-2",
             config_file_path="test_config.json",
             max_recursion_depth=5,
-            profile="test_profile",
+            profile=None,  # プロファイルをNoneに変更
             logger=mock_logger
         )
         client._get_or_create_event_loop = MagicMock(return_value=asyncio.new_event_loop())
@@ -61,8 +61,14 @@ def time_mcp_config():
 def aws_credentials():
     """AWS認証情報を確認するフィクスチャ"""
     # 環境変数からAWS認証情報が設定されているか確認
-    if not os.environ.get("AWS_ACCESS_KEY_ID") or not os.environ.get("AWS_SECRET_ACCESS_KEY"):
-        pytest.skip("AWS認証情報が設定されていません。.envファイルを確認してください。")
+    has_env_credentials = os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY")
+    
+    # プロファイルが設定されているか確認
+    has_profile = os.environ.get("AWS_PROFILE")
+    
+    # 環境変数の認証情報もプロファイルも設定されていない場合はスキップ
+    if not (has_env_credentials or has_profile):
+        pytest.skip("AWS認証情報が設定されていません。環境変数またはプロファイルを設定してください。")
 
 
 class TestBedrockClientInit:
@@ -71,7 +77,7 @@ class TestBedrockClientInit:
     def test_init(self, bedrock_client, mock_logger, mock_boto3_client):
         """初期化のテスト"""
         assert bedrock_client.logger == mock_logger
-        assert bedrock_client.profile == "test_profile"
+        assert bedrock_client.profile is None  # プロファイルがNoneであることを確認
         assert bedrock_client.model_id == "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         assert bedrock_client.config_file_path == "test_config.json"
         assert bedrock_client.max_recursion_depth == 5
@@ -300,7 +306,7 @@ class TestBedrockClientConversation:
         result = bedrock_client._convert_conversation_to_text(conversation)
         
         # 検証
-        expected = "ユーザー: こんにちは\n\nアシスタント: お元気ですか？\n\nユーザー: はい、元気です"
+        expected = "User: こんにちは\n\nAssistant: お元気ですか？\n\nUser: はい、元気です"
         assert result == expected
     
     def test_convert_conversation_to_text_complex(self, bedrock_client):
@@ -314,7 +320,7 @@ class TestBedrockClientConversation:
         result = bedrock_client._convert_conversation_to_text(conversation)
         
         # 検証
-        expected = "ユーザー: こんにちは\n今日の天気は？\n\nアシスタント: 晴れです\n\nユーザー: ありがとう"
+        expected = "User: こんにちは\n今日の天気は？\n\nAssistant: 晴れです\n\nUser: ありがとう"
         assert result == expected
     
     @pytest.mark.asyncio
@@ -324,7 +330,7 @@ class TestBedrockClientConversation:
         mock_agent = AsyncMock()
         mock_agent.invoke.return_value = "モックレスポンス"
         
-        with patch('src.infrastructure.bedrock_client.InlineAgent', return_value=mock_agent):
+        with patch('src.infrastructure.bedrock_client.InlineAgent', return_value=mock_agent) as mock_inline_agent:
             with patch.object(bedrock_client, '_load_system_prompt', return_value="テストプロンプト"):
                 with patch.object(bedrock_client, '_process_input_data', return_value="テスト入力"):
                     # ensure_async_loopデコレータをバイパス
@@ -333,57 +339,61 @@ class TestBedrockClientConversation:
                     # 検証
                     assert response == "モックレスポンス"
                     mock_agent.invoke.assert_called_once_with(input_text="テスト入力")
+                    # InlineAgentがprofile=Noneで初期化されることを確認
+                    mock_inline_agent.assert_called_once()
+                    args, kwargs = mock_inline_agent.call_args
+                    assert kwargs.get('profile') is None
 
 
-# class TestBedrockClientIntegration:
-#     """統合テスト"""
+class TestBedrockClientIntegration:
+    """統合テスト"""
     
-#     @pytest.mark.integration
-#     @pytest.mark.aws
-#     def test_real_bedrock_access(self, aws_credentials):
-#         """実際のAWS Bedrockサービスにアクセスするテスト"""
-#         # このテストはAWS認証情報が設定されている場合のみ実行
-#         region_name = os.environ.get("AWS_REGION", "us-west-2")
+    @pytest.mark.integration
+    @pytest.mark.aws
+    def test_real_bedrock_access(self, aws_credentials):
+        """実際のAWS Bedrockサービスにアクセスするテスト"""
+        # このテストはAWS認証情報が設定されている場合のみ実行
+        region_name = os.environ.get("AWS_REGION", "us-west-2")
         
-#         # 実際のBedrockClientを作成
-#         client = BedrockClient(region_name=region_name)
+        # 実際のBedrockClientを作成
+        client = BedrockClient(region_name=region_name)
         
-#         # 簡単なプロンプトを送信
-#         response = client.generate_response("こんにちは、今日の天気を教えてください。短く答えてください。")
+        # 簡単なプロンプトを送信
+        response = client.generate_response("こんにちは、今日の天気を教えてください。短く答えてください。")
         
-#         # レスポンスが返ってくることを確認
-#         assert response is not None
-#         assert isinstance(response, str)
-#         assert len(response) > 0
+        # レスポンスが返ってくることを確認
+        assert response is not None
+        assert isinstance(response, str)
+        assert len(response) > 0
         
-#         # クリーンアップ
-#         client.cleanup_mcp_clients()
+        # クリーンアップ
+        client.cleanup_mcp_clients()
     
-#     @pytest.mark.integration
-#     @pytest.mark.mcp
-#     def test_time_mcp_server(self):
-#         """timeのMCPサーバーを起動するテスト"""
-#         # 既存のMCP設定ファイルを使用
-#         config_path = "config/mcp_servers.json"
+    @pytest.mark.integration
+    @pytest.mark.mcp
+    def test_time_mcp_server(self):
+        """timeのMCPサーバーを起動するテスト"""
+        # 既存のMCP設定ファイルを使用
+        config_path = "config/mcp_servers.json"
         
-#         # BedrockClientを初期化
-#         client = BedrockClient(
-#             region_name="us-west-2",
-#             config_file_path=config_path
-#         )
+        # BedrockClientを初期化
+        client = BedrockClient(
+            region_name="us-west-2",
+            config_file_path=config_path
+        )
         
-#         try:
-#             # MCPサーバーを初期化
-#             client.initialize_inline_agent()
+        try:
+            # MCPサーバーを初期化
+            client.initialize_inline_agent()
             
-#             # MCPクライアントが作成されていることを確認
-#             assert "time" in client.mcp_clients
-#             assert len(client.action_groups) > 0
+            # MCPクライアントが作成されていることを確認
+            assert "time" in client.mcp_clients
+            assert len(client.action_groups) > 0
             
-#             # 実際にMCPサーバーが機能していることを確認
-#             print("MCPサーバーが正常に起動しました")
-#             print(f"利用可能なMCPクライアント: {list(client.mcp_clients.keys())}")
-#             print(f"ActionGroups数: {len(client.action_groups)}")
-#         finally:
-#             # クリーンアップ
-#             client.cleanup_mcp_clients()
+            # 実際にMCPサーバーが機能していることを確認
+            print("MCPサーバーが正常に起動しました")
+            print(f"利用可能なMCPクライアント: {list(client.mcp_clients.keys())}")
+            print(f"ActionGroups数: {len(client.action_groups)}")
+        finally:
+            # クリーンアップ
+            client.cleanup_mcp_clients()
