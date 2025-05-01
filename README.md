@@ -37,6 +37,14 @@ git clone https://github.com/awslabs/amazon-bedrock-agent-samples.git libs/bedro
 uv pip install -e ./libs/bedrock_samples/src/InlineAgent
 ```
 
+引用したInlineAgentはprofile指定のみでregionを個別で設定できませんでした。
+そのため、EC2上でIAMロールを使用して実行する際は`NoRegionError`が発生します。
+一旦、以下のようにInlineAgentのコードを拡張することで動作します。
+
+```bash
+perl -i -pe 's/bedrock_agent_runtime = boto3\.Session\(profile_name=self\.profile\)\.client\(/bedrock_agent_runtime = boto3.Session(profile_name=self.profile, region_name=self.region or os.environ.get("AWS_REGION", "us-east-1")).client(/g' libs/bedrock_samples/src/InlineAgent/src/InlineAgent/agent/inline_agent.py
+```
+
 ### 環境変数の設定
 
 ```bash
@@ -70,3 +78,6 @@ gunicorn app:app -b 0.0.0.0:8080 -w 4 -k gevent
 - **ボットメッセージの無視**: ボット自身のメッセージには反応しない
 - **非同期処理**: スレッドを使用してイベント処理を非同期で実行
 - **即時応答**: Slackの要件（3秒以内に応答）を満たすための最適化
+
+
+
