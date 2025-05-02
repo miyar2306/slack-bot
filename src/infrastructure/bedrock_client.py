@@ -29,14 +29,10 @@ def error_handler(func):
     return wrapper
 
 class BedrockClient:
-    def __init__(self, region_name: str, config_file_path: str = "config/mcp_servers.json", 
-                 max_recursion_depth: int = 5, profile: Optional[str] = None, logger = None):
+    def __init__(self, region_name: str, config_file_path: str = "config/mcp_servers.json", logger = None):
         self.logger = logger or setup_logger(__name__)
-        self.client = boto3.client('bedrock-runtime', region_name=region_name)
-        self.profile = profile
         self.model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         self.config_file_path = config_file_path
-        self.max_recursion_depth = max_recursion_depth
         self.action_groups = []
         self.mcp_clients = {}
         
@@ -68,7 +64,8 @@ class BedrockClient:
             return "You are a helpful AI assistant. Speak in Japanese"
     
     @ensure_async_loop
-    async def initialize_inline_agent(self):
+    async def initialize_mcp_services(self):
+        """MCPサービス（クライアントとアクショングループ）を初期化する"""
         for server_name, server_config in self.mcp_config.items():
             if isinstance(server_config, dict) and 'command' in server_config:
                 await self._initialize_mcp_client_and_create_action_group(server_name, server_config)
@@ -115,7 +112,7 @@ class BedrockClient:
             foundation_model=self.model_id,
             instruction=system_text,
             agent_name="slack_bot_agent",
-            profile=None,  # 直接Noneを指定
+            profile=None,
             action_groups=self.action_groups
         )
         

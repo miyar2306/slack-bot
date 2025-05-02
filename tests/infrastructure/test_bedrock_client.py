@@ -39,8 +39,6 @@ def bedrock_client(mock_logger, mock_boto3_client):
         client = BedrockClient(
             region_name="us-west-2",
             config_file_path="test_config.json",
-            max_recursion_depth=5,
-            profile=None,  # プロファイルをNoneに変更
             logger=mock_logger
         )
         client._get_or_create_event_loop = MagicMock(return_value=asyncio.new_event_loop())
@@ -77,10 +75,8 @@ class TestBedrockClientInit:
     def test_init(self, bedrock_client, mock_logger, mock_boto3_client):
         """初期化のテスト"""
         assert bedrock_client.logger == mock_logger
-        assert bedrock_client.profile is None  # プロファイルがNoneであることを確認
         assert bedrock_client.model_id == "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         assert bedrock_client.config_file_path == "test_config.json"
-        assert bedrock_client.max_recursion_depth == 5
         assert bedrock_client.action_groups == []
         assert bedrock_client.mcp_clients == {}
         assert bedrock_client.mcp_config == {}
@@ -384,7 +380,7 @@ class TestBedrockClientIntegration:
         
         try:
             # MCPサーバーを初期化
-            client.initialize_inline_agent()
+            client.initialize_mcp_services()
             
             # MCPクライアントが作成されていることを確認
             assert "time" in client.mcp_clients

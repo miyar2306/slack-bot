@@ -35,16 +35,16 @@ bedrock_client = BedrockClient(
     logger=logger
 )
 
-# InlineAgentの初期化（非同期処理を同期的に実行）
-logger.info("Initializing InlineAgent...")
+# MCPサービスの初期化（非同期処理を同期的に実行）
+logger.info("Initializing MCP services...")
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-bedrock_client.initialize_inline_agent()
-logger.info("InlineAgent initialized")
+bedrock_client.initialize_mcp_services()
+logger.info("MCP services initialized")
 
 slack_service = SlackService(
     slack_client=slack_client,
