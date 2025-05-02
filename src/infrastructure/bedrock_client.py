@@ -116,16 +116,39 @@ class BedrockClient:
             
         # 最大長を超える場合は切り詰めて「...」を追加
         return description[:max_length-3] + "..."
+        
+    def _truncate_tool_name(self, name: str, max_length: int = 64) -> str:
+        """
+        ツール名を指定された最大長に制限する
+        """
+        if len(name) <= max_length:
+            return name
+            
+        # 長すぎる場合は、名前の一部を保持しつつハッシュを追加して一意性を確保
+        name_hash = str(hash(name) % 10000).zfill(4)  # 4桁のハッシュ値
+        prefix_length = max_length - 5 - len(name_hash)  # "__"と"..."の分を引く
+        
+        if prefix_length > 0:
+            return name[:prefix_length] + "__" + name_hash + "..."
+        else:
+            # 極端に短い場合はハッシュのみ
+            return name_hash
     
     def _process_function_schema(self, function_schema: Dict) -> Dict:
         """
-        関数スキーマの説明文を制限する
+        関数スキーマの説明文とツール名を制限する
         """
         if "functions" in function_schema:
             for function in function_schema["functions"]:
+                # 説明文の長さを制限
                 if "description" in function:
                     function["description"] = self._truncate_description(function["description"])
+                
+                # ツール名の長さを制限
+                if "name" in function:
+                    function["name"] = self._truncate_tool_name(function["name"])
                     
+                # パラメータの説明文の長さを制限
                 if "parameters" in function:
                     for param_name, param_details in function["parameters"].items():
                         if "description" in param_details:
@@ -138,6 +161,10 @@ class BedrockClient:
             # server_nameを正規表現パターンに合わせて加工
             sanitized_name = self._sanitize_action_group_name(server_name)
             
+            # ActionGroup名を短くする（長いserver_nameの場合）
+            if len(sanitized_name) > 20:
+                sanitized_name = sanitized_name[:20]
+            
             action_group = ActionGroup(
                 name=f"{sanitized_name}ActionGroup",
                 description=self._truncate_description(f"Tools provided by {server_name} MCP server"),
@@ -147,6 +174,12 @@ class BedrockClient:
             # MCPクライアントから取得した関数スキーマを処理
             if hasattr(mcp_client, "function_schema"):
                 mcp_client.function_schema = self._process_function_schema(mcp_client.function_schema)
+                
+                # ツール名の長さをチェックして警告
+                if "functions" in mcp_client.function_schema:
+                    for function in mcp_client.function_schema["functions"]:
+                        if "name" in function and len(function["name"]) > 64:
+                            self.logger.warning(f"Tool name '{function['name']}' is too long (> 64 chars) and has been truncated")
                 
             self.action_groups.append(action_group)
             self.logger.info(f"Created action group for {server_name}")
