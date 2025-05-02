@@ -302,7 +302,7 @@ class TestBedrockClientConversation:
         result = bedrock_client._convert_conversation_to_text(conversation)
         
         # 検証
-        expected = "User: こんにちは\n\nAssistant: お元気ですか？\n\nUser: はい、元気です"
+        expected = "User: はい、元気です\n\n参考情報：\nUser: こんにちは\n\nAssistant: お元気ですか？"
         assert result == expected
     
     def test_convert_conversation_to_text_complex(self, bedrock_client):
@@ -316,7 +316,29 @@ class TestBedrockClientConversation:
         result = bedrock_client._convert_conversation_to_text(conversation)
         
         # 検証
-        expected = "User: こんにちは\n今日の天気は？\n\nAssistant: 晴れです\n\nUser: ありがとう"
+        expected = "User: ありがとう\n\n参考情報：\nUser: こんにちは\n今日の天気は？\n\nAssistant: 晴れです"
+        assert result == expected
+    
+    def test_convert_conversation_to_text_single_message(self, bedrock_client):
+        """単一メッセージの会話履歴テキスト変換のテスト"""
+        conversation = [
+            {"role": "user", "content": [{"text": "こんにちは"}]}
+        ]
+        
+        result = bedrock_client._convert_conversation_to_text(conversation)
+        
+        # 検証
+        expected = "User: こんにちは"
+        assert result == expected
+    
+    def test_convert_conversation_to_text_empty(self, bedrock_client):
+        """空の会話履歴テキスト変換のテスト"""
+        conversation = []
+        
+        result = bedrock_client._convert_conversation_to_text(conversation)
+        
+        # 検証
+        expected = ""
         assert result == expected
     
     @pytest.mark.asyncio

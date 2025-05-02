@@ -256,24 +256,52 @@ class BedrockClient:
         return conversation
     
     def _convert_conversation_to_text(self, conversation: List[Dict]) -> str:
-        result = []
-        for message in conversation:
-            role = message.get("role", "")
-            content = message.get("content", [])
-            
-            if isinstance(content, list):
-                text_parts = []
-                for item in content:
-                    if isinstance(item, dict) and "text" in item:
-                        text_parts.append(item["text"])
-                text = "\n".join(text_parts)
-            else:
-                text = str(content)
-            
-            prefix = "User: " if role == "user" else "Assistant: "
-            result.append(f"{prefix}{text}")
+        if not conversation:
+            return ""
         
-        return "\n\n".join(result)
+        # 最新のメッセージ（リストの最後のメッセージ）を取得
+        latest_message = conversation[-1]
+        latest_role = latest_message.get("role", "")
+        latest_content = latest_message.get("content", [])
+        
+        # 最新メッセージのテキストを抽出
+        if isinstance(latest_content, list):
+            text_parts = []
+            for item in latest_content:
+                if isinstance(item, dict) and "text" in item:
+                    text_parts.append(item["text"])
+            latest_text = "\n".join(text_parts)
+        else:
+            latest_text = str(latest_content)
+        
+        # 最新メッセージを主要な指示として設定
+        prefix = "User: " if latest_role == "user" else "Assistant: "
+        main_instruction = f"{prefix}{latest_text}"
+        
+        # 過去のメッセージがある場合は参考情報として追加
+        if len(conversation) > 1:
+            reference_messages = []
+            for message in conversation[:-1]:  # 最新メッセージを除く
+                role = message.get("role", "")
+                content = message.get("content", [])
+                
+                if isinstance(content, list):
+                    text_parts = []
+                    for item in content:
+                        if isinstance(item, dict) and "text" in item:
+                            text_parts.append(item["text"])
+                    text = "\n".join(text_parts)
+                else:
+                    text = str(content)
+                
+                prefix = "User: " if role == "user" else "Assistant: "
+                reference_messages.append(f"{prefix}{text}")
+            
+            reference_info = "\n\n".join(reference_messages)
+            return f"{main_instruction}\n\n参考情報：\n{reference_info}"
+        
+        # 過去のメッセージがない場合は主要な指示のみ返す
+        return main_instruction
     
     @ensure_async_loop
     async def cleanup_mcp_clients(self):
