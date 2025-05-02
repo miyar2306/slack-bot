@@ -2,6 +2,7 @@ import boto3
 import asyncio
 import json
 import functools
+import re
 from typing import Dict, Any, List, Union, Optional, Set
 
 from mcp import StdioServerParameters
@@ -89,13 +90,64 @@ class BedrockClient:
         except Exception as e:
             self.logger.error(f"Error initializing MCP client for {server_name}: {e}")
     
+    def _sanitize_action_group_name(self, name: str) -> str:
+        """
+        ActionGroupNameを正規表現パターン ([0-9a-zA-Z][_-]?){1,100} に合わせて加工する
+        """
+        # 英数字、アンダースコア、ハイフン以外の文字を削除
+        sanitized_name = re.sub(r'[^0-9a-zA-Z_\-]', '', name)
+        
+        # 名前が空の場合はデフォルト名を使用
+        if not sanitized_name:
+            sanitized_name = "DefaultActionGroup"
+            
+        # 100文字を超える場合は切り詰める
+        if len(sanitized_name) > 100:
+            sanitized_name = sanitized_name[:100]
+            
+        return sanitized_name
+    
+    def _truncate_description(self, description: str, max_length: int = 1200) -> str:
+        """
+        説明文を指定された最大長に制限する
+        """
+        if len(description) <= max_length:
+            return description
+            
+        # 最大長を超える場合は切り詰めて「...」を追加
+        return description[:max_length-3] + "..."
+    
+    def _process_function_schema(self, function_schema: Dict) -> Dict:
+        """
+        関数スキーマの説明文を制限する
+        """
+        if "functions" in function_schema:
+            for function in function_schema["functions"]:
+                if "description" in function:
+                    function["description"] = self._truncate_description(function["description"])
+                    
+                if "parameters" in function:
+                    for param_name, param_details in function["parameters"].items():
+                        if "description" in param_details:
+                            param_details["description"] = self._truncate_description(param_details["description"])
+                            
+        return function_schema
+    
     async def _create_action_group(self, server_name: str, mcp_client):
         try:
+            # server_nameを正規表現パターンに合わせて加工
+            sanitized_name = self._sanitize_action_group_name(server_name)
+            
             action_group = ActionGroup(
-                name=f"{server_name}ActionGroup",
-                description=f"Tools provided by {server_name} MCP server",
+                name=f"{sanitized_name}ActionGroup",
+                description=self._truncate_description(f"Tools provided by {server_name} MCP server"),
                 mcp_clients=[mcp_client]
             )
+            
+            # MCPクライアントから取得した関数スキーマを処理
+            if hasattr(mcp_client, "function_schema"):
+                mcp_client.function_schema = self._process_function_schema(mcp_client.function_schema)
+                
             self.action_groups.append(action_group)
             self.logger.info(f"Created action group for {server_name}")
         except Exception as e:
