@@ -30,8 +30,6 @@ slack_client = SlackClient(slack_bot_token, logger)
 bedrock_client = BedrockClient(
     region_name=aws_region,
     config_file_path=mcp_config_file,
-    max_recursion_depth=bedrock_max_recursion_depth,
-    profile=aws_profile,
     logger=logger
 )
 
