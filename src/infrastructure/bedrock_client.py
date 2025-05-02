@@ -41,8 +41,12 @@ class BedrockClient:
     
     def _get_or_create_event_loop(self):
         try:
-            return asyncio.get_event_loop()
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("Event loop is closed")
+            return loop
         except RuntimeError:
+            # 新しいイベントループを作成し、現在のスレッドに設定
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             return loop
@@ -189,7 +193,7 @@ class BedrockClient:
             self.mcp_clients.pop(server_name, None)
     
     @ensure_async_loop
-    async def generate_response(self, input_data: Union[str, List[Dict]]) -> str:
+    async def generate_response(self, input_data: Union[str, List[Dict]], timeout: int = 60) -> str:
         system_text = self._load_system_prompt()
         input_text = self._process_input_data(input_data)
         
@@ -201,7 +205,15 @@ class BedrockClient:
             action_groups=self.action_groups
         )
         
-        return await agent.invoke(input_text=input_text)
+        try:
+            # タイムアウト設定を追加
+            return await asyncio.wait_for(agent.invoke(input_text=input_text), timeout=timeout)
+        except asyncio.TimeoutError:
+            self.logger.error(f"Request timed out after {timeout} seconds")
+            return "申し訳ありませんが、応答生成がタイムアウトしました。後でもう一度お試しください。"
+        except Exception as e:
+            self.logger.error(f"Error in generate_response: {e}", exc_info=True)
+            return f"エラーが発生しました: {str(e)}"
     
     def _process_input_data(self, input_data: Union[str, List[Dict]]) -> str:
         if isinstance(input_data, str):
