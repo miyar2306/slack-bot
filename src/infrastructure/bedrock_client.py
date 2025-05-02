@@ -197,6 +197,8 @@ class BedrockClient:
     async def generate_response(self, input_data: Union[str, List[Dict]], timeout: int = 60) -> str:
         system_text = self._load_system_prompt()
         input_text = self._process_input_data(input_data)
+
+        self.logger.debug(f"Input text to Bedrock: {input_text}")
         
         agent = InlineAgent(
             foundation_model=self.model_id,
