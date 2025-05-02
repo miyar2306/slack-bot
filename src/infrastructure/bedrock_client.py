@@ -3,6 +3,7 @@ import asyncio
 import json
 import functools
 import re
+import os
 from typing import Dict, Any, List, Union, Optional, Set
 
 from mcp import StdioServerParameters
@@ -206,8 +207,16 @@ class BedrockClient:
         )
         
         try:
+            self.logger.debug(f"Invoking agent with timeout: {timeout} seconds")
+            self.logger.debug(f"Action groups count: {len(self.action_groups)}")
+            for i, ag in enumerate(self.action_groups):
+                self.logger.debug(f"Action group {i}: {ag.name if hasattr(ag, 'name') else 'Unknown'}")
+            
             # タイムアウト設定を追加
-            return await asyncio.wait_for(agent.invoke(input_text=input_text), timeout=timeout)
+            self.logger.debug("Starting agent.invoke with wait_for")
+            response = await asyncio.wait_for(agent.invoke(input_text=input_text), timeout=timeout)
+            self.logger.debug("Agent invoke completed successfully")
+            return response
         except asyncio.TimeoutError:
             self.logger.error(f"Request timed out after {timeout} seconds")
             return "申し訳ありませんが、応答生成がタイムアウトしました。後でもう一度お試しください。"

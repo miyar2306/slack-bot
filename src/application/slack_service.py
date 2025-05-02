@@ -37,7 +37,8 @@ class SlackService:
                 self.logger.info(f"Ignoring bot message: {event.get('bot_id')}")
                 return True
             
-            threading.Thread(target=self._dispatch_event, args=(event,)).start()
+            # スレッドを使用せず、直接イベントを処理
+            self._dispatch_event(event)
             return True
             
         except Exception as e:
@@ -45,7 +46,7 @@ class SlackService:
             return False
     
     def _dispatch_event(self, event):
-        """イベントタイプに基づいて適切なハンドラに振り分け（別スレッドで実行）"""
+        """イベントタイプに基づいて適切なハンドラに振り分け"""
         try:
             event_type = event.get("type")
             channel = event.get("channel")
