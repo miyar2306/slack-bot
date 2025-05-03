@@ -12,6 +12,7 @@ from InlineAgent.action_group import ActionGroup
 from InlineAgent.agent import InlineAgent
 
 from .logger import setup_logger
+from .custom_mcp import CustomMCPStdio
 
 def ensure_async_loop(func):
     @functools.wraps(func)
@@ -89,7 +90,8 @@ class BedrockClient:
         server_params = StdioServerParameters(command=command, args=args, env=env)
         
         try:
-            mcp_client = await MCPStdio.create(server_params=server_params)
+            # MCPStdioの代わりにCustomMCPStdioを使用
+            mcp_client = await CustomMCPStdio.create(server_params=server_params)
             self.mcp_clients[server_name] = mcp_client
             await self._create_action_group(server_name, mcp_client)
         except Exception as e:
