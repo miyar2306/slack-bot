@@ -1,5 +1,6 @@
 import threading
 import re
+import json
 from src.infrastructure.logger import setup_logger
 from markdown2slack.app import Convert
 
@@ -75,6 +76,7 @@ class SlackService:
             
             self.logger.info("Generating response using Bedrock with InlineAgent")
             # クリーニングしたメッセージを直接BedrockClientに渡す
+            self.logger.debug(f"BedrockClientに渡すメッセージ(メンション): {json.dumps(cleaned_messages, ensure_ascii=False, indent=2)}")
             response = self.bedrock_client.generate_response(cleaned_messages)
             
             # 共通の応答処理メソッドを使用
@@ -88,13 +90,32 @@ class SlackService:
             # 処理実行
             if is_single_message:
                 self.logger.debug("Processing single DM message")
-                message_text = self._remove_mention_tags(thread_ts)
-                response = self.bedrock_client.generate_response(message_text)
+                # スレッドタイムスタンプではなく、メッセージを取得する必要がある
+                messages = self.slack_client.get_thread_messages(channel, thread_ts)
+                if messages and len(messages) > 0:
+                    message = messages[0]  # 最初のメッセージを取得
+                    text = message.get("text", "")
+                    clean_text = self._process_slack_formatting(text)
+                    
+                    # ユーザー名情報を追加
+                    user_id = message.get("user")
+                    if user_id:
+                        user_info = self.slack_client.get_user_info(user_id)
+                        if user_info.get("success"):
+                            user_name = user_info.get("display_name")
+                            clean_text = f"{user_name}: {clean_text}"
+                    
+                    self.logger.debug(f"BedrockClientに渡すメッセージ(単一DM): {clean_text}")
+                    response = self.bedrock_client.generate_response(clean_text)
+                else:
+                    self.logger.error("No messages found in thread")
+                    return
             else:
                 thread_messages = self.slack_client.get_thread_messages(channel, thread_ts)
                 # メンションタグを削除
                 cleaned_messages = self._clean_messages(thread_messages)
                 # クリーニングしたメッセージを直接BedrockClientに渡す
+                self.logger.debug(f"BedrockClientに渡すメッセージ(スレッドDM): {json.dumps(cleaned_messages, ensure_ascii=False, indent=2)}")
                 response = self.bedrock_client.generate_response(cleaned_messages)
             
             # 共通の応答処理メソッドを使用
@@ -103,18 +124,30 @@ class SlackService:
             self.logger.error(f"Error in _handle_direct_message: {e}", exc_info=True)
     
     def _clean_messages(self, messages):
-        """メッセージリストの各テキストからメンションタグを削除"""
+        """メッセージリストの各テキストからメンションタグを削除し、ユーザー名情報を追加する"""
+        self.logger.debug(f"元のメッセージ: {json.dumps(messages, ensure_ascii=False, indent=2)}")
+        
         cleaned_messages = []
         for message in messages:
             text = message.get("text", "")
-            clean_text = self._remove_mention_tags(text)
+            clean_text = self._process_slack_formatting(text)
             
             if clean_text:
                 # 元のメッセージをコピーして、テキストだけ置き換える
                 cleaned_message = message.copy()
                 cleaned_message["text"] = clean_text
+                
+                # ユーザー名情報を追加
+                user_id = message.get("user")
+                if user_id and not message.get("bot_id"):
+                    user_info = self.slack_client.get_user_info(user_id)
+                    if user_info.get("success"):
+                        cleaned_message["user_name"] = user_info.get("display_name")
+                        self.logger.debug(f"ユーザー名を追加: user_id={user_id}, user_name={user_info.get('display_name')}")
+                
                 cleaned_messages.append(cleaned_message)
         
+        self.logger.debug(f"クリーニング後のメッセージ: {json.dumps(cleaned_messages, ensure_ascii=False, indent=2)}")
         return cleaned_messages
     
     def _process_response(self, channel, thread_ts, response_text):
@@ -211,6 +244,19 @@ class SlackService:
             blocks=error_blocks
         )
     
+    def _process_slack_formatting(self, text):
+        """Slackの特殊フォーマットを処理する"""
+        # メンションタグを削除
+        text = re.sub(r'<@[A-Z0-9]+>', '', text)
+        
+        # URLタグを処理 (<https://example.com|表示テキスト> → https://example.com (表示テキスト))
+        text = re.sub(r'<(https?://[^|>]+)\|([^>]+)>', r'\1 (\2)', text)
+        
+        # リンクテキストのないURLタグを処理 (<https://example.com> → https://example.com)
+        text = re.sub(r'<(https?://[^>]+)>', r'\1', text)
+        
+        return text.strip()
+    
     def _remove_mention_tags(self, text):
-        """メッセージテキストからメンションタグを削除"""
-        return re.sub(r'<@[A-Z0-9]+>', '', text).strip()
+        """メッセージテキストからメンションタグを削除（後方互換性のため残す）"""
+        return self._process_slack_formatting(text)

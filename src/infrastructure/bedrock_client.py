@@ -229,13 +229,21 @@ class BedrockClient:
     
     def _process_input_data(self, input_data: Union[str, List[Dict]]) -> str:
         if isinstance(input_data, str):
+            self.logger.debug(f"入力データ(文字列): {input_data}")
             return input_data
         elif isinstance(input_data, list):
+            self.logger.debug(f"入力データ(リスト): {json.dumps(input_data, ensure_ascii=False, indent=2)}")
+            
             if all(isinstance(item, dict) and "text" in item for item in input_data):
                 conversation = self.create_conversation_history_from_messages(input_data)
-                return self._convert_conversation_to_text(conversation)
+                self.logger.debug(f"変換後の会話履歴: {json.dumps(conversation, ensure_ascii=False, indent=2)}")
+                result = self._convert_conversation_to_text(conversation)
+                self.logger.debug(f"テキスト変換後: {result}")
+                return result
             elif all(isinstance(item, dict) and "role" in item for item in input_data):
-                return self._convert_conversation_to_text(input_data)
+                result = self._convert_conversation_to_text(input_data)
+                self.logger.debug(f"テキスト変換後: {result}")
+                return result
             else:
                 raise ValueError("Invalid message format")
         else:
@@ -249,6 +257,15 @@ class BedrockClient:
             
             if text:
                 role = "assistant" if message.get("bot_id") else "user"
+                
+                # ユーザー名情報を含める
+                user_name = message.get("user_name", "")
+                original_text = text
+                if user_name and role == "user":
+                    # ユーザー名を含めたテキストを作成
+                    text = f"{user_name}: {text}"
+                    self.logger.debug(f"ユーザー名を追加: '{original_text}' → '{text}'")
+                
                 conversation.append({
                     "role": role,
                     "content": [{"text": text}]

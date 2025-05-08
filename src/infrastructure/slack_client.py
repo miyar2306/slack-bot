@@ -212,3 +212,29 @@ class SlackClient:
         
         # 長いメッセージを送信
         return self.send_long_message(channel, text, thread_ts)
+    
+    def get_user_info(self, user_id):
+        """
+        Get user information from Slack API
+        
+        Args:
+            user_id (str): User ID to get information for
+            
+        Returns:
+            dict: User information with success status and user data if applicable
+        """
+        try:
+            self.logger.debug(f"Getting user info for user {user_id}")
+            response = self.client.users_info(user=user_id)
+            
+            user_data = response.get('user', {})
+            self.logger.debug(f"Retrieved user info for {user_id}")
+            
+            return {
+                "success": True,
+                "user": user_data,
+                "display_name": user_data.get('profile', {}).get('display_name') or user_data.get('real_name') or user_id
+            }
+        except SlackApiError as e:
+            self.logger.error(f"Error getting user info: {e}")
+            return {"success": False, "error": str(e)}
