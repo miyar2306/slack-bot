@@ -379,7 +379,7 @@ class TestBedrockClientIntegration:
         client = BedrockClient(region_name=region_name)
         
         # 簡単なプロンプトを送信
-        response = client.generate_response("こんにちは、今日の天気を教えてください。短く答えてください。")
+        response = client. generate_response("こんにちは、今日の天気を教えてください。短く答えてください。")
         
         # レスポンスが返ってくることを確認
         assert response is not None
