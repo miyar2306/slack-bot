@@ -4,6 +4,8 @@ import asyncio
 import os
 from unittest.mock import MagicMock, AsyncMock, patch, mock_open
 from src.infrastructure.bedrock_client import BedrockClient, ensure_async_loop, error_handler
+from src.infrastructure.custom_mcp import CustomMCPStdio
+from mcp.shared.exceptions import McpError
 from dotenv import load_dotenv
 
 # 環境変数を読み込む
@@ -415,3 +417,64 @@ class TestBedrockClientIntegration:
         finally:
             # クリーンアップ
             client.cleanup_mcp_clients()
+
+
+class TestCustomMCPStdio:
+    """CustomMCPStdioクラスのテスト"""
+    
+    @pytest.mark.asyncio
+    async def test_invoke_tool_success(self):
+        """invoke_toolメソッドの成功ケースのテスト"""
+        # MCPStdioのモック
+        mock_session = AsyncMock()
+        
+        # CustomMCPStdioのインスタンスを作成
+        custom_mcp = CustomMCPStdio()
+        custom_mcp.session = mock_session
+        
+        # 親クラスのinvoke_toolをモック
+        with patch.object(CustomMCPStdio, 'invoke_tool', AsyncMock(return_value="成功結果")) as mock_super_invoke:
+            # テスト対象メソッドを呼び出し
+            result = await custom_mcp.invoke_tool("test_tool", {"param": "value"})
+            
+            # 検証
+            assert result == "成功結果"
+            mock_super_invoke.assert_called_once_with("test_tool", {"param": "value"})
+    
+    @pytest.mark.asyncio
+    async def test_invoke_tool_mcp_error(self):
+        """invoke_toolメソッドのMCPエラーケースのテスト"""
+        # MCPStdioのモック
+        mock_session = AsyncMock()
+        
+        # CustomMCPStdioのインスタンスを作成
+        custom_mcp = CustomMCPStdio()
+        custom_mcp.session = mock_session
+        
+        # 親クラスのinvoke_toolをモック
+        with patch.object(CustomMCPStdio, 'invoke_tool', AsyncMock(side_effect=McpError("MCPエラー"))) as mock_super_invoke:
+            # テスト対象メソッドを呼び出し
+            result = await custom_mcp.invoke_tool("test_tool", {"param": "value"})
+            
+            # 検証
+            assert result == "Error: MCPエラー"
+            mock_super_invoke.assert_called_once_with("test_tool", {"param": "value"})
+    
+    @pytest.mark.asyncio
+    async def test_invoke_tool_general_error(self):
+        """invoke_toolメソッドの一般エラーケースのテスト"""
+        # MCPStdioのモック
+        mock_session = AsyncMock()
+        
+        # CustomMCPStdioのインスタンスを作成
+        custom_mcp = CustomMCPStdio()
+        custom_mcp.session = mock_session
+        
+        # 親クラスのinvoke_toolをモック
+        with patch.object(CustomMCPStdio, 'invoke_tool', AsyncMock(side_effect=Exception("一般エラー"))) as mock_super_invoke:
+            # テスト対象メソッドを呼び出し
+            result = await custom_mcp.invoke_tool("test_tool", {"param": "value"})
+            
+            # 検証
+            assert result == "Error: 一般エラー"
+            mock_super_invoke.assert_called_once_with("test_tool", {"param": "value"})

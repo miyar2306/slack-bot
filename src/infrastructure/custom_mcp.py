@@ -1,12 +1,14 @@
-from typing import List, Set
+from typing import List, Set, Dict, Any, Callable
 from mcp import ListToolsResult
+from mcp.shared.exceptions import McpError
 from InlineAgent.tools.mcp import MCPStdio
 from InlineAgent.types import FunctionDefination
+from pydantic import validate_call
 
 class CustomMCPStdio(MCPStdio):
     """
     MCPStdioのカスタム実装。
-    パラメータが5つ以上のツールをスキップするようにオーバーライドします。
+    パラメータが5つ以上のツールをスキップし、エラーハンドリングを改善します。
     """
     
     async def set_available_tools(self, tools_to_use: Set) -> List[FunctionDefination]:
@@ -48,3 +50,37 @@ class CustomMCPStdio(MCPStdio):
                     continue
 
             self.function_schema["functions"].append(function)
+            
+    @validate_call
+    async def set_callable_tool(self, tools_to_use: set) -> Dict[str, Callable]:
+        """
+        エラーハンドリングを追加したcallable関数を作成
+        """
+        if not self.session:
+            raise RuntimeError("Not connected to MCP server")
+
+        tools = await self.session.list_tools()
+        tools_list = tools.tools
+
+        # エラーハンドリングを追加したcallable関数を作成
+        def create_callable(tool_name):
+            async def callable(*args, **kwargs):
+                try:
+                    response = await self.session.call_tool(
+                        tool_name, arguments=kwargs
+                    )
+                    return response.content[0].text
+                except McpError as e:
+                    # MCPエラーオブジェクトを文字列に変換して返す
+                    return f"Error: {str(e)}"
+                except Exception as e:
+                    # その他の例外も文字列に変換
+                    return f"Error: {str(e)}"
+            return callable
+
+        for tool in tools_list:
+            if len(tools_to_use) != 0:
+                if tool.name in tools_to_use:
+                    self.callable_tools[tool.name] = create_callable(tool.name)
+            else:
+                self.callable_tools[tool.name] = create_callable(tool.name)

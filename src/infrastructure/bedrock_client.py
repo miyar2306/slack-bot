@@ -7,7 +7,6 @@ import os
 from typing import Dict, Any, List, Union, Optional, Set
 
 from mcp import StdioServerParameters
-from InlineAgent.tools import MCPStdio
 from InlineAgent.action_group import ActionGroup
 from InlineAgent.agent import InlineAgent
 
@@ -90,7 +89,7 @@ class BedrockClient:
         server_params = StdioServerParameters(command=command, args=args, env=env)
         
         try:
-            # MCPStdioの代わりにCustomMCPStdioを使用
+            # CustomMCPStdioを使用
             mcp_client = await CustomMCPStdio.create(server_params=server_params)
             self.mcp_clients[server_name] = mcp_client
             await self._create_action_group(server_name, mcp_client)
