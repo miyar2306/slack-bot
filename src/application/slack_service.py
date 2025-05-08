@@ -94,8 +94,19 @@ class SlackService:
                 messages = self.slack_client.get_thread_messages(channel, thread_ts)
                 if messages and len(messages) > 0:
                     message = messages[0]  # 最初のメッセージを取得
+                    
+                    # 通常のテキストを処理
                     text = message.get("text", "")
                     clean_text = self._process_slack_formatting(text)
+                    
+                    # blocksフィールドから追加情報を抽出
+                    blocks_text = self._extract_text_from_blocks(message.get("blocks", []))
+                    if blocks_text:
+                        self.logger.debug(f"単一DMのblocksから抽出したテキスト: {blocks_text}")
+                        if clean_text:
+                            clean_text = f"{clean_text}\n\n{blocks_text}"
+                        else:
+                            clean_text = blocks_text
                     
                     # ユーザー名情報を追加
                     user_id = message.get("user")
@@ -129,8 +140,18 @@ class SlackService:
         
         cleaned_messages = []
         for message in messages:
+            # 通常のテキストを処理
             text = message.get("text", "")
             clean_text = self._process_slack_formatting(text)
+            
+            # blocksフィールドから追加情報を抽出
+            blocks_text = self._extract_text_from_blocks(message.get("blocks", []))
+            if blocks_text:
+                self.logger.debug(f"blocksから抽出したテキスト: {blocks_text}")
+                if clean_text:
+                    clean_text = f"{clean_text}\n\n{blocks_text}"
+                else:
+                    clean_text = blocks_text
             
             if clean_text:
                 # 元のメッセージをコピーして、テキストだけ置き換える
@@ -149,6 +170,35 @@ class SlackService:
         
         self.logger.debug(f"クリーニング後のメッセージ: {json.dumps(cleaned_messages, ensure_ascii=False, indent=2)}")
         return cleaned_messages
+    
+    def _extract_text_from_blocks(self, blocks):
+        """blocksフィールドからテキスト情報を抽出する"""
+        extracted_texts = []
+        
+        for block in blocks:
+            block_type = block.get("type")
+            
+            # sectionブロックの処理
+            if block_type == "section" and "text" in block:
+                text_obj = block["text"]
+                if text_obj.get("type") == "mrkdwn":
+                    extracted_texts.append(self._process_slack_formatting(text_obj.get("text", "")))
+            
+            # contextブロックの処理
+            elif block_type == "context" and "elements" in block:
+                for element in block["elements"]:
+                    if element.get("type") == "mrkdwn":
+                        extracted_texts.append(self._process_slack_formatting(element.get("text", "")))
+            
+            # rich_textブロックの処理
+            elif block_type == "rich_text" and "elements" in block:
+                for section in block["elements"]:
+                    if section.get("type") == "rich_text_section" and "elements" in section:
+                        for element in section["elements"]:
+                            if element.get("type") == "text":
+                                extracted_texts.append(element.get("text", ""))
+        
+        return "\n".join(extracted_texts) if extracted_texts else ""
     
     def _process_response(self, channel, thread_ts, response_text):
         """応答テキストを処理してSlackに送信する共通ロジック"""
